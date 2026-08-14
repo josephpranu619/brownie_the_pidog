@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+
+import subprocess
+from pathlib import Path
+
+PIDOG = Path.home() / "pidog"
+EXAMPLES = PIDOG / "examples"
+
+BEHAVIORS = {
+    "1. Wake Up": "1_wake_up.py",
+    "2. Function Demonstration": "2_function_demonstration.py",
+    "3. Patrol": "3_patrol.py",
+    "4. Response": "4_response.py",
+    "5. Rest": "5_rest.py",
+    "6. Be Picked Up": "6_be_picked_up.py",
+    "7. Face Track": "7_face_track.py",
+    "8. Push Up": "8_pushup.py",
+    "9. Howling": "9_howling.py",
+    "10. Balance": "10_balance.py",
+    "11. Play PiDog with Keyboard": "11_keyboard_control.py",
+    "12. Ball Track": "13_ball_track.py",
+}
+
+
+def choose():
+    p = subprocess.run(
+        [
+            "fzf",
+            "--height=85%",
+            "--layout=reverse",
+            "--border=rounded",
+            "--prompt=Brownie Behaviors > ",
+            "--pointer=▶",
+            "--header=Select behavior • Enter to run • Esc to exit",
+        ],
+        input="\n".join(BEHAVIORS.keys()),
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+
+    if p.returncode != 0:
+        return None
+
+    return p.stdout.strip()
+
+
+def main():
+    while True:
+        selection = choose()
+
+        if not selection:
+            break
+
+        script = EXAMPLES / BEHAVIORS[selection]
+
+        if not script.exists():
+            print(f"\nMissing example: {script}")
+            input("\nPress Enter...")
+            continue
+
+        print(f"\nRunning: {selection}")
+        print(f"Script: {script}")
+        print("Ctrl+C to stop and return to the menu.\n")
+
+        try:
+            subprocess.run(
+                ["python3", str(script)],
+                cwd=PIDOG,
+            )
+        except KeyboardInterrupt:
+            pass
+
+        print("\nReturning to Brownie Behaviors...")
+
+
+if __name__ == "__main__":
+    main()

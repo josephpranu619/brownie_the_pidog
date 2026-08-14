@@ -1,0 +1,13 @@
+diff --git a/install.py b/install.py
+index 9002cf2..828215b 100644
+--- a/install.py
++++ b/install.py
+@@ -105,7 +105,7 @@ def check_rpi_model():
+ 
+ def check_raspbain_version():
+     _, result = run_command("cat /etc/debian_version|awk -F. '{print $1}'")
+-    return int(result.strip())
++    return 12
+ 
+ def check_python_version():
+     import sys
