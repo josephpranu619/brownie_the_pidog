@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 
+import argparse
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-HOME = Path.home()
-CHECK = HOME / "pidog_check.py"
-
-dog = None
-pose = None
+HERE = Path(__file__).resolve().parent
+CHECK = HERE / "pidog_check.py"
 
 
 def pause():
@@ -23,16 +21,9 @@ def pause():
 
 def approx_battery_percent(voltage):
     points = [
-        (6.00, 0),
-        (6.60, 5),
-        (7.00, 15),
-        (7.20, 30),
-        (7.40, 50),
-        (7.60, 65),
-        (7.80, 80),
-        (8.00, 90),
-        (8.20, 97),
-        (8.40, 100),
+        (6.00, 0), (6.60, 5), (7.00, 15), (7.20, 30),
+        (7.40, 50), (7.60, 65), (7.80, 80), (8.00, 90),
+        (8.20, 97), (8.40, 100),
     ]
 
     if voltage <= points[0][0]:
@@ -62,72 +53,54 @@ def battery():
     pause()
 
 
-def get_dog():
-    global dog
+def motion(action):
+    """Run inside a dedicated short-lived hardware-owning process."""
+    from pidog import Pidog
 
-    if dog is None:
+    dog = None
+
+    try:
         print("\nInitializing Brownie...")
-        from pidog import Pidog
         dog = Pidog()
-        print("Brownie ready.")
 
-    return dog
+        if action == "walk":
+            print("Brownie: standing before walk...")
+            dog.do_action("stand", speed=65)
+            dog.wait_all_done()
+            time.sleep(0.4)
 
+            print("Brownie: walking forward...")
+            dog.do_action("forward", step_count=2, speed=80)
+            dog.wait_all_done()
 
-def release_dog():
-    global dog, pose
+            print("Brownie: standing...")
+            dog.do_action("stand", speed=65)
+            dog.wait_all_done()
 
-    if dog is not None:
-        print("\nPausing Brownie's motion controller...")
-        dog.close()
-        dog = None
-        pose = None
+        else:
+            print(f"Brownie: {action}")
+            dog.do_action(action, speed=70)
+            dog.wait_all_done()
 
+        print("Done.")
 
-def pose_action(name, speed=70):
-    global pose
-
-    d = get_dog()
-
-    print(f"\nBrownie: {name}")
-    d.do_action(name, speed=speed)
-    d.wait_all_done()
-
-    pose = name
-    print("Done.")
-    pause()
+    finally:
+        if dog is not None:
+            dog.close()
 
 
-def walk_forward():
-    global pose
-
-    d = get_dog()
-
-    # NEVER enter a gait directly from sit/lie/etc.
-    print("\nBrownie: standing before walk...")
-    d.do_action("stand", speed=65)
-    d.wait_all_done()
-    time.sleep(0.4)
-
-    print("Brownie: walking forward...")
-    d.do_action("forward", step_count=2, speed=80)
-    d.wait_all_done()
-
-    print("Brownie: standing...")
-    d.do_action("stand", speed=65)
-    d.wait_all_done()
-
-    pose = "stand"
-    print("Done.")
+def run_motion(action):
+    print()
+    subprocess.run([
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--motion",
+        action,
+    ])
     pause()
 
 
 def diagnostic(flag=None):
-    # Diagnostics may need GPIO/audio/camera resources that Pidog owns.
-    # Release the controller automatically rather than forcing the user
-    # to exit the whole palette.
-    release_dog()
-
     cmd = [sys.executable, str(CHECK)]
 
     if flag:
@@ -177,9 +150,7 @@ def choose():
     return p.stdout.strip()
 
 
-def main():
-    global dog
-
+def menu():
     try:
         while True:
             selection = choose()
@@ -188,16 +159,16 @@ def main():
                 break
 
             if "Walk forward" in selection:
-                walk_forward()
+                run_motion("walk")
 
             elif "Stand" in selection:
-                pose_action("stand")
+                run_motion("stand")
 
             elif "Sit" in selection:
-                pose_action("sit")
+                run_motion("sit")
 
             elif "Lie down" in selection:
-                pose_action("lie")
+                run_motion("lie")
 
             elif "Battery status" in selection:
                 battery()
@@ -229,12 +200,21 @@ def main():
     except KeyboardInterrupt:
         print("\nExiting Brownie controller...")
 
-    finally:
-        if dog is not None:
-            print("\nClosing Brownie cleanly...")
-            dog.close()
+    print("Brownie controller closed.")
 
-        print("Brownie controller closed.")
+
+def main():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--motion",
+        choices=["stand", "sit", "lie", "walk"],
+    )
+    args = parser.parse_args()
+
+    if args.motion:
+        motion(args.motion)
+    else:
+        menu()
 
 
 if __name__ == "__main__":
