@@ -4,4 +4,4 @@ This folder answers one question: **if Brownie's SD card had to be rebuilt from 
 
 The primary guide is `ubuntu-22.04-from-scratch.md`.
 
-Supporting notes cover camera, audio, and validation details discovered during the first successful bring-up.
+For subsystem-specific issues discovered during bring-up, see the repository's `troubleshooting/` folder. For the list of hardware and capabilities already validated, see `docs/bringup-status.md`.
