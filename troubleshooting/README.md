@@ -4,14 +4,14 @@ This folder records the problems encountered while bringing Brownie up on Ubuntu
 
 The goal is not to collect random fixes. Each entry should preserve the reasoning that prevents us from rediscovering the same issue later.
 
-## Known categories
+## Current troubleshooting notes
 
-- `ubuntu-compatibility.md` — assumptions made by Raspberry Pi OS-oriented installers and tools
-- `camera.md` — libcamera, Picamera2, kmsxx/pykms, overlays, and sensor detection
-- `audio.md` — ALSA, PulseAudio, Robot HAT playback/capture, and SSH audio pitfalls
-- `gpio-and-robot-hat.md` — GPIO ownership, `lgpio`, MCU reset, and Robot HAT compatibility
-- `python-compatibility.md` — Python 3.10 vs Python 3.11 assumptions
-- `power-and-battery.md` — low-voltage behavior and charging lessons
+- `camera.md` — camera stack, sensor detection, and build compatibility
+- `audio.md` — Robot HAT playback/capture and Linux audio behavior
+- `gpio-and-robot-hat.md` — GPIO ownership and Robot HAT compatibility
+- `power-and-battery.md` — power, charging, and low-voltage lessons
+
+Ubuntu- and Python-specific findings are currently documented in the main setup guide and can be split into dedicated troubleshooting files later if needed.
 
 ## Entry format
 
