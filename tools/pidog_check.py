@@ -228,6 +228,83 @@ def touch_test():
     print("Seen:", ", ".join(sorted(seen)) or "none")
     print(f"{PASS if seen else FAIL} Dual touch test")
 
+def imu_test():
+    print("\n=== IMU Test ===")
+    from pidog.sh3001 import Sh3001
+
+    config = str(Path.home() / ".config/pidog/pidog.conf")
+    imu = Sh3001(db=config)
+
+    good = 0
+    for _ in range(5):
+        data = imu._sh3001_getimudata()
+        if data:
+            acc, gyro = data
+            print(f"ACC: {acc}   GYRO: {gyro}")
+            if any(v != 0 for v in acc + gyro):
+                good += 1
+        time.sleep(0.2)
+
+    print(f"{PASS if good else FAIL} IMU responding")
+
+
+def sound_direction_test():
+    print("\n=== Sound Direction Test ===")
+    from pidog.sound_direction import SoundDirection
+
+    sd = SoundDirection()
+    print("Make a clap or sharp sound near Brownie within 10 seconds...")
+
+    detected = False
+    try:
+        end = time.time() + 10
+        while time.time() < end:
+            if sd.isdetected():
+                angle = sd.read()
+                print(f"Sound direction: {angle} degrees")
+                if 0 <= angle < 360:
+                    detected = True
+                    break
+            time.sleep(0.1)
+    finally:
+        sd.close()
+
+    print(f"{PASS if detected else FAIL} Sound direction")
+
+
+def rgb_test():
+    print("\n=== RGB Strip Test ===")
+    from pidog.rgb_strip import RGBStrip
+
+    strip = RGBStrip(0x74, 11)
+
+    try:
+        for color in ("red", "green", "blue"):
+            print(f"RGB: {color}")
+            strip.set_mode(
+                "breath",
+                color=color,
+                brightness=0.5,
+                bps=2,
+            )
+
+            end = time.time() + 1.5
+            while time.time() < end:
+                strip.show()
+    finally:
+        try:
+            strip.set_mode(
+                "breath",
+                color="black",
+                brightness=0,
+                bps=1,
+            )
+            strip.show()
+        except Exception:
+            pass
+
+    print(f"{PASS} RGB test finished")
+
 def mcu_reset():
     print("\n=== MCU Reset Test ===")
     rc = subprocess.call(["robot_hat", "reset_mcu"])
@@ -239,6 +316,9 @@ parser.add_argument("--speaker", action="store_true")
 parser.add_argument("--mic", action="store_true")
 parser.add_argument("--ultrasonic", action="store_true")
 parser.add_argument("--touch", action="store_true")
+parser.add_argument("--imu", action="store_true")
+parser.add_argument("--sound-direction", action="store_true")
+parser.add_argument("--rgb", action="store_true")
 parser.add_argument("--mcu-reset", action="store_true")
 parser.add_argument("--all-safe", action="store_true")
 
@@ -256,6 +336,12 @@ if args.ultrasonic or args.all_safe:
     ultrasonic_test()
 if args.touch or args.all_safe:
     touch_test()
+if args.imu or args.all_safe:
+    imu_test()
+if args.sound_direction or args.all_safe:
+    sound_direction_test()
+if args.rgb or args.all_safe:
+    rgb_test()
 if args.mcu_reset:
     mcu_reset()
 
