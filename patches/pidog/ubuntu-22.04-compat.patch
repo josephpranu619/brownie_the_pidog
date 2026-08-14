@@ -1,0 +1,61 @@
+diff --git a/examples/1_wake_up.py b/examples/1_wake_up.py
+index 64301c0..6360079 100644
+--- a/examples/1_wake_up.py
++++ b/examples/1_wake_up.py
+@@ -21,15 +21,14 @@ def wake_up():
+     # sit and wag_tail
+     my_dog.do_action('sit', speed=25)
+     my_dog.wait_legs_done()
+-    my_dog.do_action('wag_tail', step_count=10, speed=100)
++    my_dog.do_action('wag_tail', step_count=5, speed=100)
+     my_dog.rgb_strip.set_mode('breath', color=[245, 10, 10], bps=2.5, brightness=0.8)
+     pant(my_dog, pitch_comp=-30, volume=80)
+     my_dog.wait_all_done()
+     # hold
+-    my_dog.do_action('wag_tail', step_count=10, speed=30)
++    my_dog.do_action('wag_tail', step_count=4, speed=30)
+     my_dog.rgb_strip.set_mode('breath', 'pink', bps=0.5)
+-    while True:
+-        sleep(1)
++    sleep(2)
+ 
+ if __name__ == "__main__":
+     try:
+diff --git a/pidog/dual_touch.py b/pidog/dual_touch.py
+index 38dbdc8..3a61a1d 100644
+--- a/pidog/dual_touch.py
++++ b/pidog/dual_touch.py
+@@ -1,9 +1,9 @@
+ #!/usr/bin/env python3
+ from robot_hat import Pin
+ import time
+-from enum import StrEnum
++from enum import Enum
+ 
+-class TouchStyle(StrEnum):
++class TouchStyle(str, Enum):
+     NONE = 'N'
+     REAR = 'L'
+     FRONT = 'R'
+diff --git a/pidog/pidog.py b/pidog/pidog.py
+index c3e6ec0..2cd0779 100644
+--- a/pidog/pidog.py
++++ b/pidog/pidog.py
+@@ -641,7 +641,7 @@ class Pidog():
+         if not is_run_with_root and not hasattr(self, "speak_first"):
+             self.speak_first = True
+             # warn("Play sound needs to be run with sudo.")
+-        status, _ = utils.run_command('sudo killall pulseaudio') # Solve the problem that there is no sound when running in the vnc environment
++        status = 0  # Ubuntu/headless: PulseAudio workaround disabled # Solve the problem that there is no sound when running in the vnc environment
+ 
+         if os.path.isfile(name):
+             self.music.sound_play_threading(name, volume)
+@@ -665,7 +665,7 @@ class Pidog():
+         if not is_run_with_root and not hasattr(self, "speak_first"):
+             self.speak_first = True
+             # warn("Play sound needs to be run with sudo.")
+-        _status, _ = utils.run_command('sudo killall pulseaudio') # Solve the problem that there is no sound when running in the vnc environment
++        _status = 0  # Ubuntu/headless: PulseAudio workaround disabled # Solve the problem that there is no sound when running in the vnc environment
+         
+         if os.path.isfile(name):
+             self.music.sound_play(name, volume)

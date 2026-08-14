@@ -148,12 +148,29 @@ Do not put servo movement inside the default diagnostic run.
 
 ## 8. Brownie custom layer
 
-Install the repository's custom tools once they are synced into `tools/`:
+Brownie's custom integration tools live in this repository under `tools/`:
 
 - `pidog_check.py` — passive and explicit hardware diagnostics
-- `brownie` — fuzzy command palette
+- `brownie` — direct controls and diagnostics palette
+- `brownie-behaviors` — PiDog example-behavior palette
+- `brownie-hub` — top-level launcher for Brownie tools
 
-The shell binds `Ctrl+G` to launch the Brownie palette.
+Create command symlinks:
+
+```bash
+mkdir -p ~/bin
+ln -sf ~/brownie_the_pidog/tools/brownie ~/bin/brownie
+ln -sf ~/brownie_the_pidog/tools/brownie-behaviors ~/bin/brownie-behaviors
+ln -sf ~/brownie_the_pidog/tools/brownie-hub ~/bin/brownie-hub
+```
+
+Ensure `~/bin` is on `PATH`.
+
+Brownie's top-level keyboard shortcut is `Ctrl+G`. Add this exact Bash binding to `~/.bashrc`:
+
+```bash
+bind '"\C-g":"brownie-hub\C-m"'
+```
 
 ## 9. Final verification
 

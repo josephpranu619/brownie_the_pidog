@@ -51,3 +51,29 @@ Brownie's PiDog installation disables that hidden privilege-changing audio worka
 ### Lesson
 
 Do not solve direct-ALSA contention by indiscriminately terminating the user's audio server from inside robot-library helper functions.
+
+## Known-good Brownie audio mapping
+
+On the working Raspberry Pi 4 / Ubuntu 22.04 build:
+
+- ALSA playback card 0: `bcm2835 Headphones`
+- ALSA playback card 1: `snd_rpi_googlevoicehat_soundcar`
+- ALSA capture card 1: `snd_rpi_googlevoicehat_soundcar`
+- Brownie Robot HAT audio device: card 1, device 0
+
+Use `plughw:1,0` for direct playback/capture tests so ALSA can perform format conversion.
+
+Useful verification commands:
+
+```bash
+aplay -l
+arecord -l
+```
+
+## PulseAudio runtime
+
+Known-working Ubuntu packages:
+
+- `pulseaudio`: `1:15.99.1+dfsg1-1ubuntu2.2`
+- `pulseaudio-utils`: `1:15.99.1+dfsg1-1ubuntu2.2`
+- `pasuspender`: `15.99.1` at `/usr/bin/pasuspender`

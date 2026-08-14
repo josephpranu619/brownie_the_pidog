@@ -1,0 +1,64 @@
+diff --git a/install.py b/install.py
+index 5a18848..7a12d87 100644
+--- a/install.py
++++ b/install.py
+@@ -102,7 +102,7 @@ def do(msg="", cmd=""):
+ 
+ def check_raspbain_version():
+     _, result = run_command("cat /etc/debian_version|awk -F. '{print $1}'")
+-    return int(result.strip())
++    return 12
+ 
+ 
+ def check_os_bit():
+diff --git a/robot_hat/device.py b/robot_hat/device.py
+index 2546a11..db82f3e 100644
+--- a/robot_hat/device.py
++++ b/robot_hat/device.py
+@@ -102,17 +102,25 @@ def set_pin(pin: int, value: bool):
+     :type value: bool
+     """
+     from .utils import command_exists, run_command
+-    pincmd = ''
++
+     if command_exists("pinctrl"):
+-        pincmd = 'pinctrl'
+-    elif command_exists("raspi-gpio"):
+-        pincmd = 'raspi-gpio'
+-    else:
+-        error("Can't find `pinctrl` or `raspi-gpio` to enable speaker")
++        cmd = f"pinctrl set {pin} op {'dh' if value else 'dl'}"
++        run_command(cmd)
++        return
++
++    if command_exists("raspi-gpio"):
++        cmd = f"raspi-gpio set {pin} op {'dh' if value else 'dl'}"
++        run_command(cmd)
+         return
+ 
+-    cmd = f"{pincmd} set {pin} op {'dh' if value else 'dl'}"
+-    run_command(cmd)
++    import lgpio
++
++    h = lgpio.gpiochip_open(0)
++    try:
++        lgpio.gpio_claim_output(h, pin, 1 if value else 0)
++        lgpio.gpio_write(h, pin, 1 if value else 0)
++    finally:
++        lgpio.gpiochip_close(h)
+ 
+ def get_usr_btn() -> bool:
+     """ Get user button state
+diff --git a/robot_hat/robot.py b/robot_hat/robot.py
+index 05cc226..c3bc5b3 100644
+--- a/robot_hat/robot.py
++++ b/robot_hat/robot.py
+@@ -63,7 +63,7 @@ class Robot(_Basic_class):
+ 
+         self.offset_value_name = f"{self.name}_servo_offset_list"
+         # offset
+-        self.db = fileDB(db=db, mode='774', owner=User)
++        self.db = fileDB(db=db)
+         temp = self.db.get(self.offset_value_name,
+                            default_value=str(self.new_list(0)))
+         temp = [float(i.strip()) for i in temp.strip("[]").split(",")]
