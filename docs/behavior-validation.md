@@ -20,3 +20,11 @@ All behavior-palette entries were exercised successfully:
 Wake Up includes Brownie-specific shorter tail-wag timing and exits cleanly back to the behavior menu.
 
 Continuous behaviors are stopped with Ctrl+C and return to the Brownie Behaviors menu.
+
+## SunFounder Controller / Remote Control
+Validated on 2026-08-14:
+- SunFounder Controller app sends live joystick/button data to Brownie.
+- Remote control works over Tailscale, not just local Wi-Fi.
+- PiDog movement/actions work from the remote app.
+- Live camera stream works over Tailscale.
+- Vilib `ifconfig` dependency replaced with Ubuntu-compatible `ip` lookup.
