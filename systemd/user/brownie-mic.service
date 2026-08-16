@@ -1,0 +1,12 @@
+[Unit]
+Description=Brownie boosted microphone source
+After=pulseaudio.service
+Requires=pulseaudio.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'sleep 2; pactl load-module module-alsa-source device=mic source_name=brownie_mic_boosted rate=48000 channels=2; pactl set-default-source brownie_mic_boosted'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
