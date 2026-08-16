@@ -17,6 +17,8 @@ This skill controls Brownie, a SunFounder PiDog V2.
 - Never run `safe-test` automatically.
 - Never run arbitrary PiDog demo scripts without explicit approval.
 - Sound and RGB actions require an explicit user request.
+- The `--confirm-audio` flag may only be used when the current-turn request explicitly authorizes audio output.
+- Never add `--confirm-audio` automatically or based only on earlier conversation context.
 - The `--confirm-light` flag may only be used when the current-turn request explicitly authorizes that light action.
 - Never add `--confirm-light` automatically or based only on earlier conversation context.
 - Prefer short, bounded actions.
