@@ -12,6 +12,8 @@ This skill controls Brownie, a SunFounder PiDog V2.
 - Passive status checks may run automatically.
 - Never move servos automatically.
 - Any posture or movement action requires an explicit user request in the current turn that names or clearly implies that action.
+- The `--confirm-motion` flag may only be used when that current-turn request authorizes the specific requested movement.
+- Never add `--confirm-motion` automatically, speculatively, or based only on earlier conversation context.
 - Never run `safe-test` automatically.
 - Never run arbitrary PiDog demo scripts without explicit approval.
 - Sound and RGB actions require an explicit user request.
