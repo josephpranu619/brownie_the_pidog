@@ -37,8 +37,16 @@ The Git repository is the source of truth.
 
 Do not store authentication credentials or secrets in this skill.
 
+## Implemented commands
+
+Passive status check:
+
+    python3 ~/brownie_the_pidog/hermes/skills/pidog-control/scripts/pidog_status.py
+
+This command is safe to run automatically. It does not instantiate Pidog(), move servos, play audio, control lights, or start background services.
+
 ## Current implementation status
 
-The skill contract exists, but robot command scripts are not yet installed here.
+Only the passive status helper is implemented and reviewed.
 
 Do not invent PiDog commands. Use only commands implemented and reviewed in this repository.
