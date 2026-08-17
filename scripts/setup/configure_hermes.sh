@@ -20,6 +20,7 @@ fi
 hermes config set model.default gpt-5.6-luna
 hermes config set model.provider openai-codex
 hermes config set terminal.backend local
+hermes config set terminal.cwd "$HOME/brownie_the_pidog"
 
 # Preferred Brownie voice.
 hermes config set tts.edge.voice en-US-BrianNeural
@@ -45,6 +46,7 @@ echo "Configured:"
 hermes config get model.default
 hermes config get model.provider
 hermes config get terminal.backend
+hermes config get terminal.cwd
 hermes config get tts.edge.voice
 hermes config get voice.auto_tts
 hermes config get wake_word.provider
