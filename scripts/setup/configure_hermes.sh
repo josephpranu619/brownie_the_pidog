@@ -23,6 +23,7 @@ hermes config set terminal.backend local
 
 # Preferred Brownie voice.
 hermes config set tts.edge.voice en-US-BrianNeural
+hermes config set voice.auto_tts true
 
 # Brownie wake word.
 hermes config set wake_word.provider sherpa
@@ -45,6 +46,7 @@ hermes config get model.default
 hermes config get model.provider
 hermes config get terminal.backend
 hermes config get tts.edge.voice
+hermes config get voice.auto_tts
 hermes config get wake_word.provider
 hermes config get wake_word.phrase
 
