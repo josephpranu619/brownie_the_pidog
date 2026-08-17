@@ -91,8 +91,8 @@ if new not in s:
     s = s.replace(old, new, 1)
     changed = True
 
-# 5) Close Brownie conversation after three genuine silent cycles.
-marker_close = "No speech detected 3 times, conversation closed."
+# 5) Brownie follow-up mode closes quietly after one genuine silent listen.
+marker_close = "if self._brownie_followup_mode or self._no_speech_count >= 3:"
 if marker_close not in s:
     old = """                    if self._no_speech_count >= 3:
                         self._voice_continuous = False
@@ -100,11 +100,10 @@ if marker_close not in s:
                         _cprint(f"{_DIM}No speech detected 3 times, continuous mode stopped.{_RST}")
                         stop_continuous_restart = True
 """
-    new = """                    if self._no_speech_count >= 3:
+    new = """                    if self._brownie_followup_mode or self._no_speech_count >= 3:
                         self._voice_continuous = False
                         self._brownie_followup_mode = False
                         self._no_speech_count = 0
-                        _cprint(f"{_DIM}No speech detected 3 times, conversation closed.{_RST}")
                         stop_continuous_restart = True
 """
     if old not in s:
