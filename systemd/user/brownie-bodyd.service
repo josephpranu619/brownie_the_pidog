@@ -1,0 +1,16 @@
+[Unit]
+Description=Brownie persistent body controller
+After=brownie-mic.service
+Requires=brownie-mic.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pranu/brownie_the_pidog
+ExecStart=/home/pranu/brownie_the_pidog/tools/brownie-bodyd
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

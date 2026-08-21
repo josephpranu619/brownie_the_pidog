@@ -2,6 +2,7 @@
 
 import json
 import os
+import signal
 import socket
 from pathlib import Path
 
@@ -147,6 +148,11 @@ def handle(command):
 
 
 def main():
+    def handle_shutdown_signal(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, handle_shutdown_signal)
+
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
 
