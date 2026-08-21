@@ -1,30 +1,45 @@
 #!/usr/bin/env python3
+
 import argparse
+import socket
 import sys
 
-from pidog import Pidog
+SOCKET_PATH = "/tmp/brownie-body.sock"
 
-ACTION_MAP = {
-    "stand": "stand",
-    "sit": "sit",
-    "lie": "lie",
-    "wag-tail": "wag_tail",
-    "forward": "forward",
-    "backward": "backward",
-    "turn-left": "turn_left",
-    "turn-right": "turn_right",
+ALLOWED_ACTIONS = {
+    "stand",
+    "sit",
 }
 
 
+def send_body_command(action):
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    try:
+        sock.connect(SOCKET_PATH)
+        sock.sendall(action.encode())
+        return sock.recv(4096).decode().strip()
+
+    finally:
+        sock.close()
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Brownie PiDog guarded action helper")
-    parser.add_argument("action", choices=sorted(ACTION_MAP))
-    parser.add_argument("--speed", type=int, default=60)
+    parser = argparse.ArgumentParser(
+        description="Brownie guarded persistent-body action helper"
+    )
+
+    parser.add_argument(
+        "action",
+        choices=sorted(ALLOWED_ACTIONS),
+    )
+
     parser.add_argument(
         "--confirm-motion",
         action="store_true",
         help="Required acknowledgement that servo movement was explicitly requested",
     )
+
     args = parser.parse_args()
 
     if not args.confirm_motion:
@@ -34,15 +49,24 @@ def main():
         )
         return 2
 
-    dog = Pidog()
     try:
-        action_name = ACTION_MAP[args.action]
-        dog.do_action(action_name, speed=args.speed)
-        dog.wait_all_done()
-        print(f"action '{args.action}' completed via do_action('{action_name}')")
-    finally:
-        dog.close()
+        response = send_body_command(args.action)
 
+    except FileNotFoundError:
+        print(
+            "ERROR: Brownie body controller is not running.",
+            file=sys.stderr,
+        )
+        return 1
+
+    except ConnectionRefusedError:
+        print(
+            "ERROR: Brownie body controller socket is unavailable.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(response)
     return 0
 
 

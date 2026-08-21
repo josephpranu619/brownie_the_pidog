@@ -24,14 +24,17 @@ This skill controls Brownie, a SunFounder PiDog V2.
 - The `--confirm-light` flag may only be used when the current-turn request explicitly authorizes that light action.
 - Never add `--confirm-light` automatically or based only on earlier conversation context.
 - Prefer short, bounded actions.
-- Do not start persistent PiDog controller services unless explicitly required and approved.
+- Brownie's body is owned by one persistent `brownie-bodyd` process.
+- Never instantiate a separate `Pidog()` for normal Hermes motion commands.
+- Never call `Pidog.close()` after a posture command, because it forces `stop_and_lie()`.
 
 ## Resource rules
 
 Brownie runs on a Raspberry Pi 4.
 
 - Minimize idle CPU and RAM usage.
-- Prefer direct, short-lived commands over persistent daemons.
+- Use the single persistent Brownie body controller for motion.
+- Do not run duplicate PiDog controller processes.
 - Do not run local LLM inference.
 - Avoid unnecessary browser or container runtimes.
 
@@ -51,10 +54,41 @@ Passive status check:
 
     python3 ~/brownie_the_pidog/hermes/skills/pidog-control/scripts/pidog_status.py
 
-This command is safe to run automatically. It does not instantiate Pidog(), move servos, play audio, control lights, or start background services.
+This command is safe to run automatically.
+
+Validated guarded motion commands:
+
+    python3 ~/brownie_the_pidog/hermes/skills/pidog-control/scripts/pidog_action.py stand --confirm-motion
+
+    python3 ~/brownie_the_pidog/hermes/skills/pidog-control/scripts/pidog_action.py sit --confirm-motion
+
+These commands are allowed only when the current user turn explicitly requests that motion.
+
+The motion helper talks to the persistent Brownie body controller over:
+
+    /tmp/brownie-body.sock
+
+It does not instantiate `Pidog()` directly.
 
 ## Current implementation status
 
-Only the passive status helper is implemented and reviewed.
+Validated:
+
+- passive status
+- persistent Brownie body ownership
+- stand posture
+- sit posture
+- posture persistence after command completion
+- posture-preserving body-controller shutdown
+- guarded Hermes motion helper path
+
+Not yet enabled or validated through this skill:
+
+- lie
+- walk
+- forward/backward motion
+- turning
+- tail motion
+- other expressive servo actions
 
 Do not invent PiDog commands. Use only commands implemented and reviewed in this repository.

@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import socket
+from pathlib import Path
+
+SOCKET_PATH = Path("/tmp/brownie-body.sock")
+
+DOG = None
+
+
+
+def initialize_body_to_pose(pose):
+    """
+    Create one persistent Pidog instance directly in the explicitly requested pose.
+    This function is NOT called automatically.
+    """
+    global DOG
+
+    if DOG is not None:
+        return
+
+    if pose not in {"stand", "sit", "lie"}:
+        raise ValueError(f"Unsupported initial pose: {pose}")
+
+    from pidog import Pidog
+    from pidog.actions_dictionary import ActionDict
+
+    actions = ActionDict()
+    leg_frames, part = actions[pose]
+
+    if part != "legs" or not leg_frames:
+        raise RuntimeError(f"Invalid leg action for initial pose: {pose}")
+
+    DOG = Pidog(
+        leg_init_angles=list(leg_frames[0]),
+        head_init_angles=[0, 0, 0],
+        tail_init_angle=[0],
+    )
+
+
+def body_initialized():
+    return DOG is not None
+
+
+def shutdown_body_preserve_posture():
+    """
+    Stop PiDog worker threads and peripherals without calling Pidog.close(),
+    because Pidog.close() explicitly calls stop_and_lie().
+    """
+    global DOG
+
+    if DOG is None:
+        return
+
+    dog = DOG
+
+    dog.exit_flag = True
+    dog._sensory_exit_flag = True
+
+    if "rgb" in dog.thread_list:
+        dog.rgb_thread_run = False
+
+    for name in ("legs_thread", "head_thread", "tail_thread", "imu_thread"):
+        thread = getattr(dog, name, None)
+        if thread is not None:
+            thread.join(timeout=2)
+
+    rgb_thread = getattr(dog, "rgb_strip_thread", None)
+    if rgb_thread is not None:
+        rgb_thread.join(timeout=2)
+
+    sensory_thread = getattr(dog, "sensory_process", None)
+    if sensory_thread is not None:
+        sensory_thread.join(timeout=2)
+
+    for name in ("dual_touch", "ears", "ultrasonic", "rgb_strip"):
+        device = getattr(dog, name, None)
+        close = getattr(device, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    DOG = None
+
+
+def handle(command):
+    if command == "status":
+        return {
+            "ok": True,
+            "body_initialized": body_initialized(),
+            "message": (
+                "Brownie body controller owns the body."
+                if body_initialized()
+                else "Brownie body controller is running passively."
+            ),
+        }
+
+    if command == "stand":
+        if not body_initialized():
+            initialize_body_to_pose("stand")
+            message = "Brownie body initialized directly into stand posture."
+        else:
+            DOG.body_stop()
+            DOG.do_action("stand", speed=70)
+            DOG.wait_all_done()
+            message = "Brownie moved to stand posture."
+
+        return {
+            "ok": True,
+            "body_initialized": True,
+            "pose": "stand",
+            "message": message,
+        }
+
+    if command == "sit":
+        if not body_initialized():
+            return {
+                "ok": False,
+                "error": "Body must already be initialized before sit is enabled.",
+            }
+
+        DOG.body_stop()
+        DOG.do_action("sit", speed=70)
+        DOG.wait_all_done()
+
+        return {
+            "ok": True,
+            "body_initialized": True,
+            "pose": "sit",
+            "message": "Brownie moved to sit posture.",
+        }
+
+    if command in {"lie", "walk"}:
+        return {
+            "ok": False,
+            "error": f"{command} is not enabled yet.",
+        }
+
+    return {
+        "ok": False,
+        "error": f"Unsupported command: {command}",
+    }
+
+
+def main():
+    if SOCKET_PATH.exists():
+        SOCKET_PATH.unlink()
+
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(SOCKET_PATH))
+    os.chmod(SOCKET_PATH, 0o600)
+    server.listen(1)
+
+    print(f"Brownie body controller listening on {SOCKET_PATH}")
+    print("PASSIVE MODE: PiDog hardware has not been initialized.")
+
+    try:
+        while True:
+            conn, _ = server.accept()
+
+            with conn:
+                data = conn.recv(4096).decode().strip()
+                print(f"COMMAND: {data!r}", flush=True)
+                response = handle(data)
+                conn.sendall((json.dumps(response) + "\n").encode())
+
+    except KeyboardInterrupt:
+        print("\nStopping Brownie body controller.")
+
+    finally:
+        shutdown_body_preserve_posture()
+
+        server.close()
+
+        if SOCKET_PATH.exists():
+            SOCKET_PATH.unlink()
+
+
+if __name__ == "__main__":
+    main()
