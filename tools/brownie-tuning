@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+
+import subprocess
+
+
+def hermes_get(key):
+    p = subprocess.run(
+        ["hermes", "config", "get", key],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    return p.stdout.strip()
+
+
+def pause():
+    input("\nPress Enter to return...")
+
+
+def show_current():
+    duration = hermes_get("voice.silence_duration")
+    threshold = hermes_get("voice.silence_threshold")
+
+    print("\nBrownie Voice Tuning")
+    print("--------------------")
+    print(f"Silence duration : {duration} seconds")
+    print(f"Silence threshold: {threshold}")
+    print()
+    print("silence_duration:")
+    print("  How long audio must remain quiet before Hermes stops listening.")
+    print()
+    print("silence_threshold:")
+    print("  RMS level below which Hermes considers audio to be silence.")
+    print("  Higher values tolerate more background noise as silence.")
+
+    pause()
+
+
+def set_value(key, label, guidance):
+    current = hermes_get(key)
+
+    print(f"\n{label}")
+    print("-" * len(label))
+    print(f"Current value: {current}")
+    print()
+    print(guidance)
+    print()
+
+    value = input("Enter new value, or press Enter to cancel: ").strip()
+
+    if not value:
+        print("Cancelled.")
+        pause()
+        return
+
+    print()
+    subprocess.run(["hermes", "config", "set", key, value])
+    print(f"\nNew value: {hermes_get(key)}")
+
+    pause()
+
+
+def show_mic():
+    print("\nCurrent PulseAudio default source")
+    print("---------------------------------")
+
+    subprocess.run(
+        ["pactl", "get-default-source"],
+        check=False,
+    )
+
+    print()
+    subprocess.run(
+        ["pactl", "list", "short", "sources"],
+        check=False,
+    )
+
+    pause()
+
+
+def choose():
+    items = [
+        "📊  Show current voice tuning",
+        "⏱️   Set silence duration",
+        "🎤  Set silence threshold",
+        "🎚️   Show microphone source",
+        "🚪  Back",
+    ]
+
+    p = subprocess.run(
+        [
+            "fzf",
+            "--height=70%",
+            "--layout=reverse",
+            "--border=rounded",
+            "--prompt=Brownie Tuning > ",
+            "--pointer=▶",
+            "--header=Select a parameter • Enter to open • Esc to return",
+        ],
+        input="\n".join(items),
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+
+    if p.returncode != 0:
+        return None
+
+    return p.stdout.strip()
+
+
+def main():
+    while True:
+        selection = choose()
+
+        if not selection or "Back" in selection:
+            break
+
+        if "Show current voice tuning" in selection:
+            show_current()
+
+        elif "Set silence duration" in selection:
+            set_value(
+                "voice.silence_duration",
+                "Hermes voice.silence_duration",
+                "Enter seconds, for example: 3.0\n"
+                "Brownie currently intentionally uses 3.0 seconds.",
+            )
+
+        elif "Set silence threshold" in selection:
+            set_value(
+                "voice.silence_threshold",
+                "Hermes voice.silence_threshold",
+                "Enter an RMS threshold integer, for example: 1800 or 2400.\n"
+                "Higher values make background noise more likely to count as silence.\n"
+                "Too high can cause quiet speech to be cut off.",
+            )
+
+        elif "Show microphone source" in selection:
+            show_mic()
+
+
+if __name__ == "__main__":
+    main()

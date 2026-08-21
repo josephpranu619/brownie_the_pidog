@@ -8,6 +8,8 @@ HERE = Path(__file__).resolve().parent
 TOOLS = {
     "1. Brownie Controls": HERE / "brownie",
     "2. Brownie Behaviors": HERE / "brownie-behaviors",
+    "3. Tuning Params": HERE / "brownie-tuning",
+    "4. Logs": HERE / "brownie-logs",
 }
 
 

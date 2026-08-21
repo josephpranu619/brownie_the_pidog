@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+
+import subprocess
+
+
+def pause():
+    input("\nPress Enter to return...")
+
+
+def run(cmd):
+    print()
+    subprocess.run(cmd, check=False)
+    pause()
+
+
+def choose():
+    items = [
+        "🧠  Hermes — recent logs",
+        "📡  Hermes — live logs",
+        "🐕  Body controller — recent logs",
+        "📡  Body controller — live logs",
+        "🎤  Mic/audio service — recent logs",
+        "🩺  Brownie services — status",
+        "⏱️   Voice latency — recent recorder/STT lines",
+        "🚪  Back",
+    ]
+
+    p = subprocess.run(
+        [
+            "fzf",
+            "--height=80%",
+            "--layout=reverse",
+            "--border=rounded",
+            "--prompt=Brownie Logs > ",
+            "--pointer=▶",
+            "--header=Select a log view • Enter to open • Esc to return",
+        ],
+        input="\n".join(items),
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+
+    if p.returncode != 0:
+        return None
+
+    return p.stdout.strip()
+
+
+def main():
+    while True:
+        selection = choose()
+
+        if not selection or "Back" in selection:
+            break
+
+        if "Hermes — recent logs" in selection:
+            run([
+                "journalctl",
+                "--user",
+                "-u",
+                "brownie-hermes.service",
+                "-n",
+                "120",
+                "--no-pager",
+            ])
+
+        elif "Hermes — live logs" in selection:
+            print("\nLive Hermes logs — press Ctrl+C to stop.\n")
+            subprocess.run([
+                "journalctl",
+                "--user",
+                "-u",
+                "brownie-hermes.service",
+                "-f",
+            ])
+
+        elif "Body controller — recent logs" in selection:
+            run([
+                "journalctl",
+                "--user",
+                "-u",
+                "brownie-bodyd.service",
+                "-n",
+                "120",
+                "--no-pager",
+            ])
+
+        elif "Body controller — live logs" in selection:
+            print("\nLive body-controller logs — press Ctrl+C to stop.\n")
+            subprocess.run([
+                "journalctl",
+                "--user",
+                "-u",
+                "brownie-bodyd.service",
+                "-f",
+            ])
+
+        elif "Mic/audio service — recent logs" in selection:
+            run([
+                "journalctl",
+                "--user",
+                "-u",
+                "brownie-mic.service",
+                "-n",
+                "120",
+                "--no-pager",
+            ])
+
+        elif "Brownie services — status" in selection:
+            run([
+                "systemctl",
+                "--user",
+                "status",
+                "brownie-mic.service",
+                "brownie-bodyd.service",
+                "brownie-hermes.service",
+                "--no-pager",
+            ])
+
+        elif "Voice latency — recent recorder/STT lines" in selection:
+            print()
+            subprocess.run(
+                [
+                    "journalctl",
+                    "--user",
+                    "-u",
+                    "brownie-hermes.service",
+                    "-n",
+                    "300",
+                    "--no-pager",
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            p = subprocess.run(
+                [
+                    "journalctl",
+                    "--user",
+                    "-u",
+                    "brownie-hermes.service",
+                    "-n",
+                    "300",
+                    "--no-pager",
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            keywords = (
+                "Recording",
+                "recording",
+                "Silence detected",
+                "transcribing",
+                "Transcrib",
+                "Wake word",
+                "skill",
+                "pidog_action",
+            )
+
+            found = False
+
+            for line in p.stdout.splitlines():
+                if any(k in line for k in keywords):
+                    print(line)
+                    found = True
+
+            if not found:
+                print("No matching latency-related lines found.")
+
+            pause()
+
+
+if __name__ == "__main__":
+    main()
