@@ -83,18 +83,18 @@ function CameraPreview({ large = false, cameraLive, cameraStreamKey, onToggleCam
   )
 }
 
-function DPad({ label, prefix = '' }) {
+function DPad({ label, prefix = '', disabled = false }) {
   const name = (direction) => `${prefix}${direction}`.trim()
 
   return (
     <div className="joy-box">
       <div className="joy-label">{label}</div>
       <div className="dpad">
-        <ActionButton className="dpad-button up" action={name('up')} aria-label={`${label} up`}>▲</ActionButton>
-        <ActionButton className="dpad-button left" action={name('left')} aria-label={`${label} left`}>◀</ActionButton>
+        <ActionButton disabled={disabled} className="dpad-button up" action={name('up')} aria-label={`${label} up`}>▲</ActionButton>
+        <ActionButton disabled={disabled} className="dpad-button left" action={name('left')} aria-label={`${label} left`}>◀</ActionButton>
         <div className="dpad-center" aria-hidden="true" />
-        <ActionButton className="dpad-button right" action={name('right')} aria-label={`${label} right`}>▶</ActionButton>
-        <ActionButton className="dpad-button down" action={name('down')} aria-label={`${label} down`}>▼</ActionButton>
+        <ActionButton disabled={disabled} className="dpad-button right" action={name('right')} aria-label={`${label} right`}>▶</ActionButton>
+        <ActionButton disabled={disabled} className="dpad-button down" action={name('down')} aria-label={`${label} down`}>▼</ActionButton>
       </div>
     </div>
   )
@@ -121,6 +121,10 @@ function ControlScreen({
   cameraStreamKey,
   onToggleCamera,
   onCameraError,
+  controlMode,
+  manualLeaseHeld,
+  manualHeldElsewhere,
+  onToggleManual,
 }) {
   const poseLabel = pose
     ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
@@ -211,11 +215,11 @@ function ControlScreen({
           </section>
 
           <section className="card panel">
-            <div className="section-title"><strong>Posture</strong><span>QUICK</span></div>
+            <div className="section-title"><strong>Posture</strong><span>{manualLeaseHeld ? 'MANUAL' : 'LOCKED IN AUTO'}</span></div>
             <div className="control-grid">
-              <ActionButton className="action primary" action="Stand">Stand</ActionButton>
-              <ActionButton className="action" action="Sit">Sit</ActionButton>
-              <ActionButton className="action" action="Lie down">Lie</ActionButton>
+              <ActionButton disabled={!manualLeaseHeld} className="action primary" action="Stand">Stand</ActionButton>
+              <ActionButton disabled={!manualLeaseHeld} className="action" action="Sit">Sit</ActionButton>
+              <ActionButton disabled={!manualLeaseHeld} className="action" action="Lie down">Lie</ActionButton>
               <ActionButton className="action danger" action="Emergency stop">STOP</ActionButton>
             </div>
           </section>
@@ -223,10 +227,45 @@ function ControlScreen({
       </section>
 
       <section className="card bottom-sheet">
-        <div className="section-title"><strong>Manual control</strong><span>DEMO CONTROLS</span></div>
-        <div className="joystick-wrap">
-          <DPad label="BODY" prefix="Body " />
-          <DPad label="HEAD" prefix="Head " />
+        <div className="section-title">
+          <button
+            type="button"
+            className={`action ${manualLeaseHeld ? 'primary' : ''}`}
+            onClick={onToggleManual}
+            disabled={manualHeldElsewhere}
+            aria-pressed={manualLeaseHeld}
+            style={{
+              minHeight: 'auto',
+              padding: '8px 12px',
+              fontSize: '14px',
+              fontWeight: 800,
+            }}
+          >
+            {manualLeaseHeld
+              ? 'Manual Control · ON'
+              : manualHeldElsewhere
+                ? 'Manual Control · IN USE'
+                : 'Manual Control'}
+          </button>
+          <span>
+            {manualLeaseHeld
+              ? 'WEB OWNS MOTION'
+              : manualHeldElsewhere
+                ? 'OTHER DEVICE'
+                : controlMode === 'autonomous'
+                  ? 'AUTONOMOUS'
+                  : 'CHECKING'}
+          </span>
+        </div>
+        <div
+          className="joystick-wrap"
+          style={{
+            opacity: manualLeaseHeld ? 1 : 0.42,
+            transition: 'opacity 0.18s ease',
+          }}
+        >
+          <DPad disabled={!manualLeaseHeld} label="BODY" prefix="Body " />
+          <DPad disabled={!manualLeaseHeld} label="HEAD" prefix="Head " />
         </div>
       </section>
 
@@ -508,6 +547,8 @@ function App() {
   const [distanceCm, setDistanceCm] = useState(null)
   const [cameraLive, setCameraLive] = useState(false)
   const [cameraStreamKey, setCameraStreamKey] = useState(0)
+  const [controlMode, setControlMode] = useState('autonomous')
+  const [manualLeaseId, setManualLeaseId] = useState(null)
 
   useEffect(() => {
     let timeout
@@ -550,6 +591,8 @@ function App() {
           setDistanceLive(false)
           setDistanceCm(null)
           setCameraLive(false)
+          setManualLeaseId(null)
+          setControlMode('autonomous')
         }
       }
     }
@@ -603,6 +646,80 @@ function App() {
       window.clearInterval(interval)
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const refreshControlMode = async () => {
+      try {
+        const response = await fetch('/api/control', { cache: 'no-store' })
+        if (!response.ok) throw new Error(`Control ${response.status}`)
+
+        const data = await response.json()
+        if (!cancelled) {
+          setControlMode(data.control_mode === 'manual' ? 'manual' : 'autonomous')
+        }
+      } catch {
+        if (!cancelled) setControlMode('autonomous')
+      }
+    }
+
+    refreshControlMode()
+    const interval = window.setInterval(refreshControlMode, 2000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!manualLeaseId) return undefined
+
+    let cancelled = false
+
+    const heartbeat = async () => {
+      try {
+        const response = await fetch(
+          `/api/control/manual/heartbeat?lease_id=${encodeURIComponent(manualLeaseId)}`,
+          { method: 'POST', cache: 'no-store' },
+        )
+        if (!response.ok) throw new Error(`Heartbeat ${response.status}`)
+
+        const data = await response.json()
+        if (!cancelled) setControlMode(data.control_mode === 'manual' ? 'manual' : 'autonomous')
+      } catch {
+        if (!cancelled) {
+          setManualLeaseId(null)
+          setControlMode('autonomous')
+          setToast('Manual control lease ended')
+          window.setTimeout(() => setToast(''), 1800)
+        }
+      }
+    }
+
+    heartbeat()
+    const interval = window.setInterval(heartbeat, 2500)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [manualLeaseId])
+
+  useEffect(() => {
+    if (!manualLeaseId) return undefined
+
+    const releaseOnPageExit = () => {
+      fetch(
+        `/api/control/manual/release?lease_id=${encodeURIComponent(manualLeaseId)}`,
+        { method: 'POST', keepalive: true },
+      ).catch(() => {})
+    }
+
+    window.addEventListener('pagehide', releaseOnPageExit)
+    return () => window.removeEventListener('pagehide', releaseOnPageExit)
+  }, [manualLeaseId])
 
   useEffect(() => {
     if (!distanceLive) return undefined
@@ -665,6 +782,49 @@ function App() {
     window.setTimeout(() => setToast(''), 1800)
   }
 
+  const toggleManualControl = async () => {
+    if (manualLeaseId) {
+      const leaseId = manualLeaseId
+      setManualLeaseId(null)
+      setControlMode('autonomous')
+
+      try {
+        await fetch(
+          `/api/control/manual/release?lease_id=${encodeURIComponent(leaseId)}`,
+          { method: 'POST', cache: 'no-store' },
+        )
+      } catch {
+        // The lease still self-expires if release cannot reach Brownie.
+      }
+      return
+    }
+
+    if (controlMode === 'manual') {
+      setToast('Manual control is active on another device')
+      window.setTimeout(() => setToast(''), 1800)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/control/manual/acquire', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        if (response.status === 409) setControlMode('manual')
+        throw new Error(`Acquire ${response.status}`)
+      }
+
+      const data = await response.json()
+      setManualLeaseId(data.lease_id)
+      setControlMode('manual')
+    } catch {
+      setToast('Manual control unavailable or already in use')
+      window.setTimeout(() => setToast(''), 1800)
+    }
+  }
+
   const isOnline = systemHealth?.online === true
   const connectionLabel = systemHealth == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
   const dotStyle = systemHealth == null
@@ -680,6 +840,9 @@ function App() {
     onCameraError: handleCameraError,
   }
 
+  const manualLeaseHeld = Boolean(manualLeaseId) && controlMode === 'manual'
+  const manualHeldElsewhere = !manualLeaseId && controlMode === 'manual'
+
   const screens = {
     Control: (
       <ControlScreen
@@ -691,6 +854,10 @@ function App() {
         distanceCm={distanceCm}
         distanceLive={distanceLive}
         onToggleDistance={() => setDistanceLive((current) => !current)}
+        controlMode={controlMode}
+        manualLeaseHeld={manualLeaseHeld}
+        manualHeldElsewhere={manualHeldElsewhere}
+        onToggleManual={toggleManualControl}
         {...cameraProps}
       />
     ),
