@@ -71,10 +71,28 @@ function DPad({ label, prefix = '' }) {
   )
 }
 
-function ControlScreen({ cpuTemp, batteryVoltage, pose, distanceCm, distanceLive, onToggleDistance }) {
+function thermalLabel(cpuTemp) {
+  if (cpuTemp == null) return 'Waiting for temperature'
+  if (cpuTemp >= 80) return 'Throttling zone'
+  if (cpuTemp >= 75) return 'Hot'
+  if (cpuTemp >= 65) return 'Warm'
+  return 'Comfortable'
+}
+
+function ControlScreen({
+  cpuTemp,
+  cpuUsage,
+  batteryVoltage,
+  batteryPercent,
+  pose,
+  distanceCm,
+  distanceLive,
+  onToggleDistance,
+}) {
   const poseLabel = pose
     ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
     : 'Unknown'
+  const cpuGaugeValue = cpuUsage == null ? 0 : Math.max(0, Math.min(100, cpuUsage))
 
   return (
     <>
@@ -88,13 +106,16 @@ function ControlScreen({ cpuTemp, batteryVoltage, pose, distanceCm, distanceLive
               <div className="metric">
                 <div className="metric-key">Battery</div>
                 <div className="metric-value">
-                  {batteryVoltage == null ? '—' : batteryVoltage.toFixed(2)}
-                  {batteryVoltage != null && <span className="metric-unit">V</span>}
+                  {batteryPercent == null ? '—' : batteryPercent}
+                  {batteryPercent != null && <span className="metric-unit">%</span>}
+                </div>
+                <div className="metric-detail">
+                  {batteryVoltage == null ? 'Waiting for battery' : `~ estimated · ${batteryVoltage.toFixed(2)} V`}
                 </div>
               </div>
 
               <div className="metric">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div className="metric-heading-row">
                   <div className="metric-key">Distance</div>
                   <button
                     type="button"
@@ -111,22 +132,42 @@ function ControlScreen({ cpuTemp, batteryVoltage, pose, distanceCm, distanceLive
                   {distanceCm == null ? '—' : distanceCm.toFixed(1)}
                   {distanceCm != null && <span className="metric-unit">cm</span>}
                 </div>
-                <div className="metric-key" style={{ marginTop: '6px' }}>
+                <div className="metric-detail">
                   {distanceLive ? 'LIVE · 1s refresh' : distanceCm == null ? 'Paused · toggle to read' : 'Last reading · paused'}
                 </div>
               </div>
 
-              <div className="metric">
-                <div className="metric-key">CPU</div>
-                <div className="metric-value">
-                  {cpuTemp == null ? '—' : cpuTemp.toFixed(1)}
-                  {cpuTemp != null && <span className="metric-unit">°C</span>}
+              <div className="metric cpu-metric">
+                <div className="cpu-copy">
+                  <div className="metric-key">CPU load</div>
+                  <div className="cpu-primary">
+                    {cpuUsage == null ? '—' : cpuUsage.toFixed(1)}
+                    {cpuUsage != null && <span>%</span>}
+                  </div>
+                  <div className="metric-detail">2s system refresh</div>
+                </div>
+
+                <div
+                  className="cpu-gauge"
+                  style={{ '--cpu-angle': `${cpuGaugeValue * 1.8}deg` }}
+                  aria-label={cpuUsage == null ? 'CPU usage unavailable' : `CPU usage ${cpuUsage.toFixed(1)} percent`}
+                >
+                  <div className="cpu-gauge-reading">{cpuUsage == null ? '—' : Math.round(cpuUsage)}</div>
+                </div>
+
+                <div className="cpu-thermal">
+                  <span className="cpu-temp-icon" aria-hidden="true">🌡</span>
+                  <div>
+                    <strong>{cpuTemp == null ? '—' : `${cpuTemp.toFixed(1)}°C`}</strong>
+                    <small>{thermalLabel(cpuTemp)}</small>
+                  </div>
                 </div>
               </div>
 
-              <div className="metric">
+              <div className="metric pose-metric">
                 <div className="metric-key">Pose</div>
                 <div className="metric-value pose">{poseLabel}</div>
+                <div className="metric-detail">Activity / thought state comes next</div>
               </div>
             </div>
           </section>
@@ -417,7 +458,8 @@ function SettingsScreen() {
 function App() {
   const [toast, setToast] = useState('')
   const [activeNav, setActiveNav] = useState('Control')
-  const [systemStatus, setSystemStatus] = useState(null)
+  const [systemHealth, setSystemHealth] = useState(null)
+  const [robotStatus, setRobotStatus] = useState(null)
   const [distanceLive, setDistanceLive] = useState(false)
   const [distanceCm, setDistanceCm] = useState(null)
 
@@ -440,30 +482,65 @@ function App() {
   useEffect(() => {
     let cancelled = false
 
-    const refreshStatus = async () => {
+    const refreshSystem = async () => {
+      try {
+        const response = await fetch('/api/system', { cache: 'no-store' })
+        if (!response.ok) throw new Error(`System ${response.status}`)
+
+        const data = await response.json()
+        const cpuTemp = data.cpu_temp_c == null ? null : Number(data.cpu_temp_c)
+        const cpuUsage = data.cpu_usage_percent == null ? null : Number(data.cpu_usage_percent)
+
+        if (!cancelled) {
+          setSystemHealth({
+            online: data.online === true,
+            cpuTemp: Number.isFinite(cpuTemp) ? cpuTemp : null,
+            cpuUsage: Number.isFinite(cpuUsage) ? cpuUsage : null,
+          })
+        }
+      } catch {
+        if (!cancelled) {
+          setSystemHealth({ online: false, cpuTemp: null, cpuUsage: null })
+          setDistanceLive(false)
+          setDistanceCm(null)
+        }
+      }
+    }
+
+    refreshSystem()
+    const interval = window.setInterval(refreshSystem, 2000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const refreshRobotStatus = async () => {
       try {
         const response = await fetch('/api/status', { cache: 'no-store' })
         if (!response.ok) throw new Error(`Status ${response.status}`)
 
         const data = await response.json()
-        const cpuTemp = data.cpu_temp_c == null ? null : Number(data.cpu_temp_c)
         const batteryVoltage = data.battery_voltage == null ? null : Number(data.battery_voltage)
+        const batteryPercent = data.battery_percent == null ? null : Number(data.battery_percent)
 
         if (!cancelled) {
-          setSystemStatus({
-            online: data.online === true,
-            cpuTemp: Number.isFinite(cpuTemp) ? cpuTemp : null,
+          setRobotStatus({
             batteryVoltage: Number.isFinite(batteryVoltage) ? batteryVoltage : null,
+            batteryPercent: Number.isFinite(batteryPercent) ? batteryPercent : null,
             pose: typeof data.pose === 'string' ? data.pose : null,
             bodyControllerOnline: data.body_controller_online === true,
           })
         }
       } catch {
         if (!cancelled) {
-          setSystemStatus({
-            online: false,
-            cpuTemp: null,
+          setRobotStatus({
             batteryVoltage: null,
+            batteryPercent: null,
             pose: null,
             bodyControllerOnline: false,
           })
@@ -471,8 +548,8 @@ function App() {
       }
     }
 
-    refreshStatus()
-    const interval = window.setInterval(refreshStatus, 5000)
+    refreshRobotStatus()
+    const interval = window.setInterval(refreshRobotStatus, 30000)
 
     return () => {
       cancelled = true
@@ -510,9 +587,9 @@ function App() {
     }
   }, [distanceLive])
 
-  const isOnline = systemStatus?.online === true
-  const connectionLabel = systemStatus == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
-  const dotStyle = systemStatus == null
+  const isOnline = systemHealth?.online === true
+  const connectionLabel = systemHealth == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
+  const dotStyle = systemHealth == null
     ? { background: '#8d98a8', boxShadow: 'none' }
     : !isOnline
       ? { background: '#ff6b6b', boxShadow: 'none' }
@@ -521,9 +598,11 @@ function App() {
   const screens = {
     Control: (
       <ControlScreen
-        cpuTemp={systemStatus?.cpuTemp ?? null}
-        batteryVoltage={systemStatus?.batteryVoltage ?? null}
-        pose={systemStatus?.pose ?? null}
+        cpuTemp={systemHealth?.cpuTemp ?? null}
+        cpuUsage={systemHealth?.cpuUsage ?? null}
+        batteryVoltage={robotStatus?.batteryVoltage ?? null}
+        batteryPercent={robotStatus?.batteryPercent ?? null}
+        pose={robotStatus?.pose ?? null}
         distanceCm={distanceCm}
         distanceLive={distanceLive}
         onToggleDistance={() => setDistanceLive((current) => !current)}
