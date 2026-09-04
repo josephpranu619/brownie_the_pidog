@@ -220,7 +220,8 @@ def main():
 
             with conn:
                 data = conn.recv(4096).decode().strip()
-                print(f"COMMAND: {data!r}", flush=True)
+                if data not in {"status", "distance"}:
+                    print(f"COMMAND: {data!r}", flush=True)
                 response = handle(data)
                 conn.sendall((json.dumps(response) + "\n").encode())
 
