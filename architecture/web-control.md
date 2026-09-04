@@ -131,13 +131,14 @@ The first frontend prototype includes simulated versions of:
 - body directional control
 - head directional control
 - customizable Brownie actions
+- Brownie tuning parameters
 - mobile bottom navigation
 
-These controls are currently design targets only. Frontend prototyping must not imply that a corresponding hardware command is already enabled or safe.
+These controls are currently design targets only. Frontend prototyping must not imply that a corresponding hardware command or tuning value is already enabled, applied, or safe.
 
 ## App screen structure
 
-The frontend uses four persistent bottom-navigation destinations. The main Control screen stays focused on driving Brownie, while camera-heavy and customization features get their own screens so they can evolve independently.
+The frontend uses five persistent bottom-navigation destinations. The main Control screen stays focused on driving Brownie, while camera-heavy, behavior, tuning, and app-preference features get their own screens so they can evolve independently.
 
 ```mermaid
 flowchart TD
@@ -145,6 +146,7 @@ flowchart TD
     App --> Control[Control]
     App --> Camera[Camera]
     App --> Actions[Actions]
+    App --> Tune[Tune]
     App --> Settings[Settings]
 
     Control --> Status[Telemetry / status]
@@ -157,12 +159,18 @@ flowchart TD
     Actions --> BuiltIn[Built-in behaviors]
     Actions --> Custom[Custom macros]
 
+    Tune --> Voice[Hermes voice tuning]
+    Tune --> Speaker[Robot HAT speaker volume]
+    Tune --> Mic[Microphone source inspection]
+
     Settings --> Video[Camera quality]
     Settings --> Motion[Movement preferences]
     Settings --> Network[Bandwidth preferences]
 ```
 
 Camera is intentionally separated from Control because video streaming may become one of the larger Raspberry Pi resource consumers. Keeping it as a distinct screen gives Brownie room to use different frame-rate, resolution, or stream-lifecycle policies without complicating the primary movement controller.
+
+Tune is intentionally separated from Settings. Settings describes app behavior and preferences, while Tune is Brownie-specific runtime/hardware configuration. The initial Tune screen mirrors the existing `tools/brownie-tuning` responsibilities: Hermes `voice.silence_duration`, Hermes `voice.silence_threshold`, Robot HAT speaker volume, and microphone-source inspection. The UI must clearly distinguish pending edits from values that have actually been read from or applied to Brownie.
 
 ## Safety boundary
 
