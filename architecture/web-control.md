@@ -137,30 +137,44 @@ The UI itself should therefore create very little Raspberry Pi load. Higher-cost
 
 ## Telemetry and sensor polling policy
 
-Telemetry should not automatically mean every sensor runs continuously. Brownie should distinguish lightweight health/state reads from sensors that actively perform measurements.
+Telemetry is split by cost and usefulness instead of polling every source at the same rate.
 
 ```mermaid
 flowchart TD
     UI[Control screen telemetry]
-    UI --> Slow["Slow health refresh\nabout every 5 s"]
-    UI --> Demand["Demand-driven sensor reads"]
+    UI --> System["/api/system\nabout every 2 s"]
+    UI --> Robot["/api/status\nabout every 30 s"]
+    UI --> Demand["/api/distance\nonly while enabled"]
 
-    Slow --> CPU[CPU temperature]
-    Slow --> Battery[Battery voltage]
-    Slow --> Pose[Controller pose state]
+    System --> CPUUsage["CPU usage\n/proc/stat"]
+    System --> CPUTemp["CPU temperature\nthermal sysfs"]
 
-    Demand --> Distance[Ultrasonic distance]
-    Distance -->|Toggle ON| Poll["Read about every 1 s"]
-    Distance -->|Toggle OFF| Hold["No sensor requests\nretain last value"]
+    Robot --> Battery["Battery voltage + estimated %\nvia brownie-bodyd"]
+    Robot --> Pose["Controller pose state\nvia brownie-bodyd"]
+
+    Demand -->|Toggle ON| Distance["Ultrasonic\nabout every 1 s"]
+    Demand -->|Toggle OFF| Hold["No ultrasonic requests\nretain last value"]
 ```
 
-CPU temperature, battery voltage, and pose are suitable for the existing slow status refresh because their read cost is small and they are useful as persistent health/state indicators.
+CPU usage and temperature are Linux system reads, not active robot sensors. CPU usage is calculated from changes in `/proc/stat`; the first reading after backend startup may therefore be unavailable until a second sample exists. These reads require no extra Python dependency and no permanent worker thread.
 
-Ultrasonic distance is intentionally different. The Control screen starts with live distance OFF. Turning it on requests a measurement about once per second. Turning it off stops distance requests entirely and leaves the last successful reading visible. This avoids continuous sensor activity when the user does not need ranging data.
+Battery changes slowly, so the web UI refreshes battery/pose status about every 30 seconds rather than tying those Robot HAT/body-controller reads to the faster CPU dashboard. Battery percentage reuses the same voltage-to-estimated-percentage interpolation already used by `tools/brownie`; the underlying measured voltage remains visible because the percentage is an estimate rather than a calibrated fuel gauge.
 
-Sensor access still follows the one-hardware-owner rule: the web API does not instantiate `Pidog()` or directly own robot GPIO. It asks `brownie-bodyd`, which performs the measurement using its existing PiDog ultrasonic device when initialized, or a short-lived Robot HAT ultrasonic device while the body controller is passive.
+Ultrasonic distance remains demand-driven. The Control screen starts with distance OFF and displays `--`. Turning it on requests a measurement about once per second. Turning it off stops distance requests entirely and leaves only the last successful reading visible. A backend disconnect/restart clears the browser's distance value back to `--` rather than carrying a stale range reading into a new Brownie session.
 
-Battery is initially displayed as measured voltage rather than a fabricated percentage. A percentage indicator should only be added after a deliberate battery-voltage mapping/calibration decision.
+Sensor access still follows the one-hardware-owner rule: the web API does not instantiate `Pidog()` or directly own robot GPIO. It asks `brownie-bodyd`, which performs robot hardware reads.
+
+### Ephemeral telemetry and restart behavior
+
+Live telemetry is intentionally not written continuously to disk.
+
+- CPU usage and temperature are freshly measured after restart.
+- Battery is freshly measured after restart.
+- Distance starts as `--` and remains inactive until explicitly enabled.
+- Pose starts as unknown if `brownie-bodyd` cannot safely know the physical posture after a restart.
+- Future activity states such as Listening, Thinking, Talking, Happy, Shy, or Angry should also be treated as live event state, not blindly restored after a crash.
+
+If FastAPI stops, the frontend marks Brownie offline when the next system request fails. When the API returns, system and robot telemetry repopulate from fresh reads. Persistent user preferences and custom configuration are a separate concern and may later use a small configuration store; live telemetry should remain ephemeral.
 
 ## Initial UI direction
 
