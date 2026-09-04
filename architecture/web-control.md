@@ -19,6 +19,32 @@ flowchart LR
 
 This keeps early experimentation completely isolated from servo control and avoids spending time on backend integration before the product direction is validated.
 
+The React frontend is now scaffolded under `app/frontend/` and has been successfully served by Brownie's Raspberry Pi 4 to another device on the same Wi-Fi network.
+
+## Development vs production hosting
+
+During development, Vite runs on Brownie and serves the React source with hot reload. The UI is reachable from another device on Brownie's LAN address.
+
+```mermaid
+flowchart LR
+    Phone[Phone / laptop browser] -->|Wi-Fi| Vite["Vite dev server\non Brownie"]
+    Vite --> React[React source + hot reload]
+```
+
+This development server is temporary tooling, not the intended production runtime.
+
+For production, the React/PWA source will be compiled into ordinary static web files. Brownie will serve those files with a small static server while the phone or tablet performs the actual UI rendering.
+
+```mermaid
+flowchart LR
+    Source[React / PWA source] -->|npm run build| Static["Static HTML / CSS / JS"]
+    Static --> Server["Tiny static server\non Brownie"]
+    Server -->|Wi-Fi| Phone[Phone / tablet]
+    Phone --> Render["UI rendering\nand animations"]
+```
+
+Node.js and the Vite development server therefore do not need to remain active in production merely to render the application.
+
 ## Target control architecture
 
 Brownie's web interface should not create its own `Pidog()` instance. Instead, all control surfaces should eventually route commands through the existing body controller.
