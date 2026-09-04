@@ -176,12 +176,31 @@ Live telemetry is intentionally not written continuously to disk.
 
 If FastAPI stops, the frontend marks Brownie offline when the next system request fails. When the API returns, system and robot telemetry repopulate from fresh reads. Persistent user preferences and custom configuration are a separate concern and may later use a small configuration store; live telemetry should remain ephemeral.
 
+## On-demand camera streaming
+
+The first live-camera milestone uses Brownie's detected OV5647 camera through `rpicam-vid` at 1280x720, 15 fps, MJPEG. The web API starts the encoder only when the browser requests `/api/camera/stream`.
+
+```mermaid
+flowchart LR
+    Button["LIVE button"] -->|ON| Browser["Browser img stream"]
+    Browser -->|/api/camera/stream| API[FastAPI]
+    API --> Process["one rpicam-vid process\n720p / 15 fps MJPEG"]
+    Process --> Camera[OV5647]
+    Button -->|OFF / disconnect| Stop["close stream + terminate encoder"]
+```
+
+Camera streaming is demand-driven like ultrasonic ranging, but its resource cost is much larger. When LIVE is OFF there should be no `rpicam-vid` encoder process created by the web app. When LIVE is ON, CPU usage, temperature, and battery behavior should be measured using the existing telemetry dashboard.
+
+The initial implementation intentionally permits only one active browser camera stream. A second concurrent request is rejected instead of creating another encoder process, preventing accidental duplicate CPU load during measurement.
+
+For this milestone FastAPI temporarily owns the camera subprocess because the purpose is to validate streaming and measure its cost. This is not the final autonomous-vision architecture. Once Brownie uses the camera for face tracking, perception, or other autonomous behavior, camera ownership should move to a dedicated controller such as `brownie-camd` so one camera owner can serve both autonomous vision and web viewers without competing for the OV5647 device.
+
 ## Initial UI direction
 
-The first frontend prototype includes simulated versions of:
+The frontend includes or targets:
 
-- live camera view
-- battery, distance, CPU temperature, and pose status
+- on-demand live camera view
+- battery, distance, CPU usage/temperature, and pose status
 - stand / sit / lie controls
 - emergency stop
 - body directional control
@@ -190,7 +209,7 @@ The first frontend prototype includes simulated versions of:
 - Brownie tuning parameters
 - mobile bottom navigation
 
-These controls are currently design targets only. Frontend prototyping must not imply that a corresponding hardware command or tuning value is already enabled, applied, or safe.
+Controls that have not yet been connected to a safe backend authority remain design targets only. Frontend prototyping must not imply that a corresponding hardware command or tuning value is already enabled, applied, or safe.
 
 ## App screen structure
 
