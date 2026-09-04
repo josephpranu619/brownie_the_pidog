@@ -102,10 +102,10 @@ def approx_battery_percent(voltage):
     return None
 
 
-def body_command(command):
+def body_command(command, timeout=1.0):
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(1.0)
+            client.settimeout(timeout)
             client.connect(BODY_SOCKET_PATH)
             client.sendall((command + "\n").encode())
 
@@ -124,8 +124,8 @@ def body_command(command):
         return None
 
 
-def require_body_response(command, conflict_message=None):
-    body = body_command(command)
+def require_body_response(command, conflict_message=None, timeout=1.0):
+    body = body_command(command, timeout=timeout)
 
     if body is None:
         raise HTTPException(status_code=503, detail="Brownie body controller unavailable")
@@ -307,6 +307,41 @@ def release_manual_control(lease_id: str):
     return {
         "control_mode": body.get("control_mode", "autonomous"),
         "manual_lease_remaining_s": body.get("manual_lease_remaining_s", 0.0),
+    }
+
+
+@app.post("/api/posture/stand")
+def posture_stand(lease_id: str):
+    body = require_body_response(
+        f"stand {lease_id}",
+        conflict_message="Stand requires this device to own Manual Control",
+        timeout=5.0,
+    )
+    return {
+        "pose": body.get("pose", "stand"),
+        "message": body.get("message", "Stand requested"),
+    }
+
+
+@app.post("/api/posture/sit")
+def posture_sit(lease_id: str):
+    body = require_body_response(
+        f"sit {lease_id}",
+        conflict_message="Sit requires this device to own Manual Control",
+        timeout=5.0,
+    )
+    return {
+        "pose": body.get("pose", "sit"),
+        "message": body.get("message", "Sit requested"),
+    }
+
+
+@app.post("/api/motion/stop")
+def stop_motion():
+    body = require_body_response("stop", timeout=2.0)
+    return {
+        "pose": body.get("pose"),
+        "message": body.get("message", "Stop requested"),
     }
 
 
