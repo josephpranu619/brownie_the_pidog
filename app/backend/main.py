@@ -3,6 +3,7 @@ import socket
 import subprocess
 import threading
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -123,6 +124,21 @@ def body_command(command):
         return None
 
 
+def require_body_response(command, conflict_message=None):
+    body = body_command(command)
+
+    if body is None:
+        raise HTTPException(status_code=503, detail="Brownie body controller unavailable")
+
+    if not body.get("ok"):
+        raise HTTPException(
+            status_code=409,
+            detail=conflict_message or body.get("error") or "Brownie control request rejected",
+        )
+
+    return body
+
+
 def _terminate_camera_process(process):
     if process is None:
         return
@@ -239,6 +255,58 @@ def get_status():
         "battery_voltage": voltage,
         "battery_percent": approx_battery_percent(voltage),
         "pose": body.get("pose") if body else None,
+        "control_mode": body.get("control_mode") if body else None,
+    }
+
+
+@app.get("/api/control")
+def get_control_mode():
+    body = require_body_response("control-status")
+    return {
+        "control_mode": body.get("control_mode", "autonomous"),
+        "manual_lease_active": body.get("manual_lease_active", False),
+        "manual_lease_remaining_s": body.get("manual_lease_remaining_s", 0.0),
+    }
+
+
+@app.post("/api/control/manual/acquire")
+def acquire_manual_control():
+    lease_id = uuid4().hex
+    body = require_body_response(
+        f"manual-acquire {lease_id}",
+        conflict_message="Manual control is already active on another device",
+    )
+
+    return {
+        "lease_id": lease_id,
+        "control_mode": body.get("control_mode", "manual"),
+        "manual_lease_remaining_s": body.get("manual_lease_remaining_s", 0.0),
+    }
+
+
+@app.post("/api/control/manual/heartbeat")
+def heartbeat_manual_control(lease_id: str):
+    body = require_body_response(
+        f"manual-heartbeat {lease_id}",
+        conflict_message="Manual control lease expired or belongs to another device",
+    )
+
+    return {
+        "control_mode": body.get("control_mode", "manual"),
+        "manual_lease_remaining_s": body.get("manual_lease_remaining_s", 0.0),
+    }
+
+
+@app.post("/api/control/manual/release")
+def release_manual_control(lease_id: str):
+    body = require_body_response(
+        f"manual-release {lease_id}",
+        conflict_message="Manual control lease belongs to another device",
+    )
+
+    return {
+        "control_mode": body.get("control_mode", "autonomous"),
+        "manual_lease_remaining_s": body.get("manual_lease_remaining_s", 0.0),
     }
 
 
