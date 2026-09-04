@@ -19,6 +19,7 @@ const navItems = [
   ['⌂', 'Control'],
   ['◉', 'Camera'],
   ['✦', 'Actions'],
+  ['⌁', 'Tune'],
   ['⚙', 'Settings'],
 ]
 
@@ -204,6 +205,149 @@ function ActionsScreen() {
   )
 }
 
+function TuneScreen() {
+  const [silenceDuration, setSilenceDuration] = useState(3.0)
+  const [silenceThreshold, setSilenceThreshold] = useState(1800)
+  const [speakerVolume, setSpeakerVolume] = useState(60)
+
+  const sliderStyle = { width: 'min(360px, 48vw)', accentColor: '#e8a75d' }
+  const numberStyle = { width: '82px', textAlign: 'right' }
+
+  return (
+    <div className="screen-stack">
+      <div className="screen-heading">
+        <div>
+          <span className="eyebrow">TUNE</span>
+          <h1>Brownie tuning</h1>
+          <p>A friendlier interface for the parameters currently exposed by <code>brownie-tuning</code>. Changes are simulated for now.</p>
+        </div>
+        <span className="sim-badge">SIMULATED</span>
+      </div>
+
+      <section className="card settings-card">
+        <div className="setting-row">
+          <div>
+            <b>Voice silence duration</b>
+            <span>How long audio must stay quiet before Hermes stops listening.</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <input
+              aria-label="Voice silence duration"
+              type="range"
+              min="0.5"
+              max="6"
+              step="0.1"
+              value={silenceDuration}
+              onChange={(event) => setSilenceDuration(Number(event.target.value))}
+              style={sliderStyle}
+            />
+            <input
+              aria-label="Voice silence duration value"
+              className="setting-value"
+              type="number"
+              min="0.5"
+              max="6"
+              step="0.1"
+              value={silenceDuration}
+              onChange={(event) => setSilenceDuration(Number(event.target.value))}
+              style={numberStyle}
+            />
+            <span>s</span>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <b>Voice silence threshold</b>
+            <span>RMS level below which Hermes treats audio as silence. Higher values tolerate more background noise, but too high can cut off quiet speech.</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <input
+              aria-label="Voice silence threshold"
+              type="range"
+              min="500"
+              max="4000"
+              step="50"
+              value={silenceThreshold}
+              onChange={(event) => setSilenceThreshold(Number(event.target.value))}
+              style={sliderStyle}
+            />
+            <input
+              aria-label="Voice silence threshold value"
+              className="setting-value"
+              type="number"
+              min="500"
+              max="4000"
+              step="50"
+              value={silenceThreshold}
+              onChange={(event) => setSilenceThreshold(Number(event.target.value))}
+              style={numberStyle}
+            />
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <b>Speaker volume</b>
+            <span>Robot HAT hardware speaker output. 0% is silent; 100% is maximum hardware volume.</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <input
+              aria-label="Speaker volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={speakerVolume}
+              onChange={(event) => setSpeakerVolume(Number(event.target.value))}
+              style={sliderStyle}
+            />
+            <input
+              aria-label="Speaker volume value"
+              className="setting-value"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={speakerVolume}
+              onChange={(event) => setSpeakerVolume(Number(event.target.value))}
+              style={numberStyle}
+            />
+            <span>%</span>
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <b>Microphone source</b>
+            <span>Will show Brownie's PulseAudio default source and available input devices.</span>
+          </div>
+          <button type="button" className="setting-value" onClick={() => sendDemoAction('Inspect microphone source')}>Inspect</button>
+        </div>
+      </section>
+
+      <section className="card panel">
+        <div className="section-title"><strong>Pending changes</strong><span>NOT SENT TO BROWNIE</span></div>
+        <div className="telemetry">
+          <div className="metric">
+            <div className="metric-key">Silence duration</div>
+            <div className="metric-value">{silenceDuration.toFixed(1)}<span className="metric-unit">s</span></div>
+          </div>
+          <div className="metric">
+            <div className="metric-key">Silence threshold</div>
+            <div className="metric-value">{silenceThreshold}</div>
+          </div>
+          <div className="metric">
+            <div className="metric-key">Speaker</div>
+            <div className="metric-value">{speakerVolume}<span className="metric-unit">%</span></div>
+          </div>
+          <ActionButton className="action primary" action="Apply tuning settings">Apply later</ActionButton>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function SettingsScreen() {
   return (
     <div className="screen-stack">
@@ -262,6 +406,7 @@ function App() {
     Control: <ControlScreen />,
     Camera: <CameraScreen />,
     Actions: <ActionsScreen />,
+    Tune: <TuneScreen />,
     Settings: <SettingsScreen />,
   }
 
@@ -286,7 +431,11 @@ function App() {
         {screens[activeNav]}
       </main>
 
-      <nav className="bottom-nav" aria-label="Brownie app sections">
+      <nav
+        className="bottom-nav"
+        aria-label="Brownie app sections"
+        style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}
+      >
         {navItems.map(([icon, name]) => (
           <button
             type="button"
