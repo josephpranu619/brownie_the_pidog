@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Brownie app icon</title>
+  <desc id="desc">A warm brown rounded square with a simple dog face.</desc>
+  <rect width="512" height="512" rx="112" fill="#151b23"/>
+  <circle cx="256" cy="266" r="142" fill="#d99a55"/>
+  <path d="M151 188c-49-53-84-35-78 21 4 36 31 77 74 94 6-43 10-76 4-115Z" fill="#a96834"/>
+  <path d="M361 188c49-53 84-35 78 21-4 36-31 77-74 94-6-43-10-76-4-115Z" fill="#a96834"/>
+  <circle cx="205" cy="251" r="15" fill="#151b23"/>
+  <circle cx="307" cy="251" r="15" fill="#151b23"/>
+  <path d="M228 300c0-18 12-30 28-30s28 12 28 30c0 16-13 28-28 28s-28-12-28-28Z" fill="#151b23"/>
+  <path d="M256 326c-2 32-23 48-49 48" fill="none" stroke="#151b23" stroke-width="13" stroke-linecap="round"/>
+  <path d="M256 326c2 32 23 48 49 48" fill="none" stroke="#151b23" stroke-width="13" stroke-linecap="round"/>
+</svg>
