@@ -125,6 +125,7 @@ function ControlScreen({
   manualLeaseHeld,
   manualHeldElsewhere,
   onToggleManual,
+  motionBusy,
 }) {
   const poseLabel = pose
     ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
@@ -215,11 +216,14 @@ function ControlScreen({
           </section>
 
           <section className="card panel">
-            <div className="section-title"><strong>Posture</strong><span>{manualLeaseHeld ? 'MANUAL' : 'LOCKED IN AUTO'}</span></div>
+            <div className="section-title">
+              <strong>Posture</strong>
+              <span>{manualLeaseHeld ? 'STAND / SIT LIVE' : 'LOCKED IN AUTO'}</span>
+            </div>
             <div className="control-grid">
-              <ActionButton disabled={!manualLeaseHeld} className="action primary" action="Stand">Stand</ActionButton>
-              <ActionButton disabled={!manualLeaseHeld} className="action" action="Sit">Sit</ActionButton>
-              <ActionButton disabled={!manualLeaseHeld} className="action" action="Lie down">Lie</ActionButton>
+              <ActionButton disabled={!manualLeaseHeld || motionBusy} className="action primary" action="Stand">Stand</ActionButton>
+              <ActionButton disabled={!manualLeaseHeld || motionBusy} className="action" action="Sit">Sit</ActionButton>
+              <ActionButton disabled className="action" action="Lie down">Lie</ActionButton>
               <ActionButton className="action danger" action="Emergency stop">STOP</ActionButton>
             </div>
           </section>
@@ -249,7 +253,7 @@ function ControlScreen({
           </button>
           <span>
             {manualLeaseHeld
-              ? 'WEB OWNS MOTION'
+              ? 'POSTURE LIVE · D-PADS NEXT'
               : manualHeldElsewhere
                 ? 'OTHER DEVICE'
                 : controlMode === 'autonomous'
@@ -260,12 +264,12 @@ function ControlScreen({
         <div
           className="joystick-wrap"
           style={{
-            opacity: manualLeaseHeld ? 1 : 0.42,
+            opacity: 0.42,
             transition: 'opacity 0.18s ease',
           }}
         >
-          <DPad disabled={!manualLeaseHeld} label="BODY" prefix="Body " />
-          <DPad disabled={!manualLeaseHeld} label="HEAD" prefix="Head " />
+          <DPad disabled label="BODY" prefix="Body " />
+          <DPad disabled label="HEAD" prefix="Head " />
         </div>
       </section>
 
@@ -549,12 +553,74 @@ function App() {
   const [cameraStreamKey, setCameraStreamKey] = useState(0)
   const [controlMode, setControlMode] = useState('autonomous')
   const [manualLeaseId, setManualLeaseId] = useState(null)
+  const [motionBusy, setMotionBusy] = useState(false)
 
   useEffect(() => {
     let timeout
 
-    const handleAction = (event) => {
-      setToast(`${event.detail} · demo only`)
+    const handleAction = async (event) => {
+      const action = event.detail
+
+      if (action === 'Stand' || action === 'Sit') {
+        if (!manualLeaseId || controlMode !== 'manual') {
+          setToast(`${action} requires Manual Control`)
+          clearTimeout(timeout)
+          timeout = setTimeout(() => setToast(''), 1800)
+          return
+        }
+
+        setMotionBusy(true)
+        try {
+          const endpoint = action.toLowerCase()
+          const response = await fetch(
+            `/api/posture/${endpoint}?lease_id=${encodeURIComponent(manualLeaseId)}`,
+            { method: 'POST', cache: 'no-store' },
+          )
+
+          if (!response.ok) {
+            if (response.status === 409) {
+              setManualLeaseId(null)
+              setControlMode('autonomous')
+            }
+            throw new Error(`${action} ${response.status}`)
+          }
+
+          const data = await response.json()
+          setRobotStatus((current) => ({
+            batteryVoltage: current?.batteryVoltage ?? null,
+            batteryPercent: current?.batteryPercent ?? null,
+            pose: typeof data.pose === 'string' ? data.pose : current?.pose ?? null,
+            bodyControllerOnline: true,
+          }))
+          setToast(`${action} requested`)
+        } catch {
+          setToast(`${action} request failed`)
+        } finally {
+          setMotionBusy(false)
+          clearTimeout(timeout)
+          timeout = setTimeout(() => setToast(''), 1800)
+        }
+        return
+      }
+
+      if (action === 'Emergency stop') {
+        try {
+          const response = await fetch('/api/motion/stop', {
+            method: 'POST',
+            cache: 'no-store',
+          })
+          if (!response.ok) throw new Error(`Stop ${response.status}`)
+          setToast('STOP sent')
+        } catch {
+          setToast('STOP request failed')
+        }
+
+        clearTimeout(timeout)
+        timeout = setTimeout(() => setToast(''), 1800)
+        return
+      }
+
+      setToast(`${action} · demo only`)
       clearTimeout(timeout)
       timeout = setTimeout(() => setToast(''), 1200)
     }
@@ -564,7 +630,7 @@ function App() {
       clearTimeout(timeout)
       window.removeEventListener('brownie-demo-action', handleAction)
     }
-  }, [])
+  }, [controlMode, manualLeaseId])
 
   useEffect(() => {
     let cancelled = false
@@ -858,6 +924,7 @@ function App() {
         manualLeaseHeld={manualLeaseHeld}
         manualHeldElsewhere={manualHeldElsewhere}
         onToggleManual={toggleManualControl}
+        motionBusy={motionBusy}
         {...cameraProps}
       />
     ),
