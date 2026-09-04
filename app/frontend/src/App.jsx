@@ -446,8 +446,8 @@ function App() {
         if (!response.ok) throw new Error(`Status ${response.status}`)
 
         const data = await response.json()
-        const cpuTemp = Number(data.cpu_temp_c)
-        const batteryVoltage = Number(data.battery_voltage)
+        const cpuTemp = data.cpu_temp_c == null ? null : Number(data.cpu_temp_c)
+        const batteryVoltage = data.battery_voltage == null ? null : Number(data.battery_voltage)
 
         if (!cancelled) {
           setSystemStatus({
@@ -491,7 +491,7 @@ function App() {
         if (!response.ok) throw new Error(`Distance ${response.status}`)
 
         const data = await response.json()
-        const distance = Number(data.distance_cm)
+        const distance = data.distance_cm == null ? null : Number(data.distance_cm)
 
         if (!cancelled && Number.isFinite(distance)) {
           setDistanceCm(distance)
