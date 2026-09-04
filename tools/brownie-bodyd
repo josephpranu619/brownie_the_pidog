@@ -103,6 +103,17 @@ def manual_lease_owned_by(lease_id):
     return bool(lease_id) and manual_lease_active() and MANUAL_LEASE_ID == lease_id
 
 
+def renew_manual_lease(lease_id):
+    """Refresh a lease after a command that may temporarily block socket servicing."""
+    global MANUAL_LEASE_EXPIRES_AT
+
+    if lease_id and MANUAL_LEASE_ID == lease_id:
+        MANUAL_LEASE_EXPIRES_AT = time.monotonic() + MANUAL_LEASE_SECONDS
+        return True
+
+    return False
+
+
 def control_state():
     active = manual_lease_active()
     remaining = max(0.0, MANUAL_LEASE_EXPIRES_AT - time.monotonic()) if active else 0.0
@@ -276,6 +287,8 @@ def handle(command):
             CURRENT_POSE = "stand"
             message = "Brownie started moving to stand posture."
 
+        renew_manual_lease(argument)
+
         return {
             "ok": True,
             "body_initialized": True,
@@ -302,6 +315,7 @@ def handle(command):
         DOG.body_stop()
         DOG.do_action("sit", speed=70)
         CURRENT_POSE = "sit"
+        renew_manual_lease(argument)
 
         return {
             "ok": True,
@@ -362,19 +376,22 @@ def main():
             conn, _ = server.accept()
 
             with conn:
-                data = conn.recv(4096).decode().strip()
-                verb = data.partition(" ")[0]
-                quiet_command = (
-                    data in {"status", "distance", "control-status"}
-                    or verb == "manual-heartbeat"
-                )
-                if not quiet_command:
-                    safe_label = verb if verb in {
-                        "manual-acquire", "manual-release", "stand", "sit"
-                    } else data
-                    print(f"COMMAND: {safe_label!r}", flush=True)
-                response = handle(data)
-                conn.sendall((json.dumps(response) + "\n").encode())
+                try:
+                    data = conn.recv(4096).decode().strip()
+                    verb = data.partition(" ")[0]
+                    quiet_command = (
+                        data in {"status", "distance", "control-status"}
+                        or verb == "manual-heartbeat"
+                    )
+                    if not quiet_command:
+                        safe_label = verb if verb in {
+                            "manual-acquire", "manual-release", "stand", "sit"
+                        } else data
+                        print(f"COMMAND: {safe_label!r}", flush=True)
+                    response = handle(data)
+                    conn.sendall((json.dumps(response) + "\n").encode())
+                except OSError as exc:
+                    print(f"CLIENT SOCKET CLOSED: {exc}", flush=True)
 
     except KeyboardInterrupt:
         print("\nStopping Brownie body controller.")
