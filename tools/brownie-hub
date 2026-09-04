@@ -44,7 +44,10 @@ def main():
 
         tool = TOOLS[selection]
 
-        subprocess.run([str(tool)])
+        try:
+            subprocess.run([str(tool)])
+        except KeyboardInterrupt:
+            print()
 
 
 if __name__ == "__main__":

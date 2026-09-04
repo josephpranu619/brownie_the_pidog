@@ -20,6 +20,7 @@ def choose():
         "🐕  Body controller — recent logs",
         "📡  Body controller — live logs",
         "🎤  Mic/audio service — recent logs",
+        "🎚️   Mic diagnostics",
         "🩺  Brownie services — status",
         "⏱️   Voice latency — recent recorder/STT lines",
         "🚪  Back",
@@ -105,6 +106,83 @@ def main():
                 "120",
                 "--no-pager",
             ])
+
+        elif "Mic diagnostics" in selection:
+            print("\nBrownie microphone diagnostics")
+            print("-------------------------------")
+
+            print("\nSource (Brownie-created):")
+            print("  brownie_mic_boosted")
+            print('  PulseAudio input source wrapping the PiDog ALSA device "mic".')
+
+            print("\nDefault input source:")
+            subprocess.run(["pactl", "get-default-source"], check=False)
+
+            print("\nHardware microphone gain:")
+            subprocess.run(
+                ["amixer", "-c", "1", "sget", "robot-hat mic"],
+                check=False,
+            )
+            print("  This is the VoiceHAT hardware capture gain.")
+            print("  Brownie currently uses 100% / +25 dB, the hardware maximum.")
+
+            print("\nSoftware input volume:")
+            subprocess.run(
+                ["pactl", "get-source-volume", "brownie_mic_boosted"],
+                check=False,
+            )
+            print("  100% / 0 dB = no extra PulseAudio amplification.")
+            print("  Above 100% = software boost; below 100% = attenuation.")
+
+            print("\nMute state:")
+            subprocess.run(
+                ["pactl", "get-source-mute", "brownie_mic_boosted"],
+                check=False,
+            )
+            print('  "no" means microphone audio is allowed through.')
+
+            print("\nSource state:")
+            subprocess.run(
+                [
+                    "bash",
+                    "-lc",
+                    "pactl list short sources | grep brownie_mic_boosted || true",
+                ],
+                check=False,
+            )
+
+            print("\nLive RMS meter")
+            print("--------------")
+            print("Brownie's current observed reference:")
+            print("  ~30–100     quiet room")
+            print("  ~700–1800   normal nearby speech")
+            print("  >300 idle   investigate background noise")
+            print()
+            print("RMS = approximate instantaneous audio energy.")
+            print("Higher number = louder signal.")
+            print("\nSpeak normally; Ctrl+C to stop.")
+            try:
+                subprocess.run(
+                    [
+                        "/home/pranu/.hermes/hermes-agent/venv/bin/python",
+                        "-c",
+                        (
+                            "import sounddevice as sd, numpy as np; "
+                            "cb=lambda indata,frames,time_info,status: print(int(np.sqrt(np.mean(indata.astype(np.float64)**2))), flush=True); "
+                            "s=sd.InputStream(channels=1, samplerate=16000, blocksize=1600, "
+                            "dtype='int16', callback=cb); "
+                            "s.start(); "
+                            "import time, signal, sys; "
+                            "signal.signal(signal.SIGINT, lambda sig, frame: sys.exit(0)); "
+                            "time.sleep(3600)"
+                        ),
+                    ],
+                    check=False,
+                )
+            except KeyboardInterrupt:
+                pass
+
+            pause()
 
         elif "Brownie services — status" in selection:
             run([
