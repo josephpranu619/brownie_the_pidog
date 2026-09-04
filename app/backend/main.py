@@ -315,7 +315,7 @@ def posture_stand(lease_id: str):
     body = require_body_response(
         f"stand {lease_id}",
         conflict_message="Stand requires this device to own Manual Control",
-        timeout=5.0,
+        timeout=15.0,
     )
     return {
         "pose": body.get("pose", "stand"),
@@ -328,7 +328,7 @@ def posture_sit(lease_id: str):
     body = require_body_response(
         f"sit {lease_id}",
         conflict_message="Sit requires this device to own Manual Control",
-        timeout=5.0,
+        timeout=15.0,
     )
     return {
         "pose": body.get("pose", "sit"),
