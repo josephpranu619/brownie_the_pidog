@@ -5,7 +5,19 @@ Requires=pulseaudio.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '/usr/local/bin/robot_hat enable_speaker; sleep 2; pactl load-module module-alsa-source device=mic source_name=brownie_mic_boosted rate=48000 channels=2; pactl set-default-source brownie_mic_boosted'
+ExecStart=/bin/bash -c '\
+  /usr/local/bin/robot_hat enable_speaker; \
+  for i in {1..30}; do \
+    if pactl list short sources | grep -q brownie_mic_boosted; then \
+      break; \
+    fi; \
+    if pactl load-module module-alsa-source device=mic source_name=brownie_mic_boosted rate=48000 channels=2 >/dev/null 2>&1; then \
+      break; \
+    fi; \
+    sleep 1; \
+  done; \
+  pactl list short sources | grep -q brownie_mic_boosted || { echo "brownie_mic_boosted failed to initialize"; exit 1; }; \
+  pactl set-default-source brownie_mic_boosted'
 RemainAfterExit=yes
 
 [Install]
