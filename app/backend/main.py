@@ -1,18 +1,37 @@
 import json
 import socket
+import subprocess
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 app = FastAPI(title="Brownie Web API", version="0.1.0")
 
 CPU_TEMP_PATH = Path("/sys/class/thermal/thermal_zone0/temp")
 CPU_STAT_PATH = Path("/proc/stat")
 BODY_SOCKET_PATH = "/tmp/brownie-body.sock"
+CAMERA_COMMAND = [
+    "rpicam-vid",
+    "-n",
+    "--codec",
+    "mjpeg",
+    "--width",
+    "1280",
+    "--height",
+    "720",
+    "--framerate",
+    "15",
+    "-t",
+    "0",
+    "-o",
+    "-",
+]
 
 _cpu_sample_lock = threading.Lock()
 _previous_cpu_sample = None
+_camera_stream_lock = threading.Lock()
 
 
 def read_cpu_temp_c():
@@ -103,6 +122,68 @@ def body_command(command):
         return None
 
 
+def camera_mjpeg_stream():
+    process = None
+
+    try:
+        process = subprocess.Popen(
+            CAMERA_COMMAND,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
+        )
+
+        if process.stdout is None:
+            raise RuntimeError("Camera stream stdout unavailable")
+
+        buffer = bytearray()
+
+        while True:
+            chunk = process.stdout.read(65536)
+            if not chunk:
+                break
+
+            buffer.extend(chunk)
+
+            while True:
+                start = buffer.find(b"\xff\xd8")
+                if start < 0:
+                    if len(buffer) > 1:
+                        del buffer[:-1]
+                    break
+
+                end = buffer.find(b"\xff\xd9", start + 2)
+                if end < 0:
+                    if start > 0:
+                        del buffer[:start]
+                    break
+
+                frame = bytes(buffer[start:end + 2])
+                del buffer[:end + 2]
+
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    + f"Content-Length: {len(frame)}\r\n\r\n".encode()
+                    + frame
+                    + b"\r\n"
+                )
+    finally:
+        if process is not None:
+            if process.stdout is not None:
+                process.stdout.close()
+
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1.0)
+
+        _camera_stream_lock.release()
+
+
 @app.get("/api/system")
 def get_system():
     return {
@@ -135,3 +216,18 @@ def get_distance():
     return {
         "distance_cm": body.get("distance_cm"),
     }
+
+
+@app.get("/api/camera/stream")
+def get_camera_stream():
+    if not _camera_stream_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Camera stream already active")
+
+    return StreamingResponse(
+        camera_mjpeg_stream(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
