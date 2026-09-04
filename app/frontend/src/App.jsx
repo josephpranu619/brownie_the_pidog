@@ -70,7 +70,7 @@ function CameraPreview({ large = false, cameraLive, cameraStreamKey, onToggleCam
             }}
           >
             <span style={cameraLive ? { background: '#55d68b' } : undefined} />
-            {cameraLive ? ' LIVE' : ' LIVE'}
+            LIVE
           </button>
           <div className="pill">720p · 15 fps</div>
         </div>
@@ -634,15 +634,33 @@ function App() {
     }
   }, [distanceLive])
 
-  const toggleCamera = () => {
-    setCameraLive((current) => {
-      if (!current) setCameraStreamKey((key) => key + 1)
-      return !current
-    })
+  const requestCameraStop = async () => {
+    try {
+      await fetch('/api/camera/stop', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+    } catch {
+      // The UI can still turn the preview off if the backend disappears.
+    }
   }
 
-  const handleCameraError = () => {
+  const toggleCamera = async () => {
+    if (cameraLive) {
+      setCameraLive(false)
+      await requestCameraStop()
+      return
+    }
+
+    // Clear any stale encoder from a previous broken/disconnected stream first.
+    await requestCameraStop()
+    setCameraStreamKey((key) => key + 1)
+    setCameraLive(true)
+  }
+
+  const handleCameraError = async () => {
     setCameraLive(false)
+    await requestCameraStop()
     setToast('Camera stream unavailable')
     window.setTimeout(() => setToast(''), 1800)
   }
