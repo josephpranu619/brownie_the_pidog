@@ -71,13 +71,10 @@ function DPad({ label, prefix = '' }) {
   )
 }
 
-function ControlScreen({ cpuTemp }) {
-  const telemetry = [
-    ['Battery', '86', '%'],
-    ['Distance', '74', 'cm'],
-    ['CPU', cpuTemp == null ? '—' : cpuTemp.toFixed(1), '°C'],
-    ['Pose', 'Stand', ''],
-  ]
+function ControlScreen({ cpuTemp, batteryVoltage, pose, distanceCm, distanceLive, onToggleDistance }) {
+  const poseLabel = pose
+    ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
+    : 'Unknown'
 
   return (
     <>
@@ -86,16 +83,51 @@ function ControlScreen({ cpuTemp }) {
 
         <div className="side-column">
           <section className="card panel">
-            <div className="section-title"><strong>Status</strong><span>CPU LIVE · OTHERS SIMULATED</span></div>
+            <div className="section-title"><strong>Status</strong><span>LIVE TELEMETRY</span></div>
             <div className="telemetry">
-              {telemetry.map(([key, value, unit]) => (
-                <div className="metric" key={key}>
-                  <div className="metric-key">{key}</div>
-                  <div className={`metric-value ${key === 'Pose' ? 'pose' : ''}`}>
-                    {value}{unit && <span className="metric-unit">{unit}</span>}
-                  </div>
+              <div className="metric">
+                <div className="metric-key">Battery</div>
+                <div className="metric-value">
+                  {batteryVoltage == null ? '—' : batteryVoltage.toFixed(2)}
+                  {batteryVoltage != null && <span className="metric-unit">V</span>}
                 </div>
-              ))}
+              </div>
+
+              <div className="metric">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                  <div className="metric-key">Distance</div>
+                  <button
+                    type="button"
+                    className={`toggle-demo ${distanceLive ? 'on' : ''}`}
+                    onClick={onToggleDistance}
+                    aria-pressed={distanceLive}
+                    aria-label="Toggle live distance readings"
+                    title={distanceLive ? 'Pause distance readings' : 'Start live distance readings'}
+                  >
+                    <span />
+                  </button>
+                </div>
+                <div className="metric-value">
+                  {distanceCm == null ? '—' : distanceCm.toFixed(1)}
+                  {distanceCm != null && <span className="metric-unit">cm</span>}
+                </div>
+                <div className="metric-key" style={{ marginTop: '6px' }}>
+                  {distanceLive ? 'LIVE · 1s refresh' : distanceCm == null ? 'Paused · toggle to read' : 'Last reading · paused'}
+                </div>
+              </div>
+
+              <div className="metric">
+                <div className="metric-key">CPU</div>
+                <div className="metric-value">
+                  {cpuTemp == null ? '—' : cpuTemp.toFixed(1)}
+                  {cpuTemp != null && <span className="metric-unit">°C</span>}
+                </div>
+              </div>
+
+              <div className="metric">
+                <div className="metric-key">Pose</div>
+                <div className="metric-value pose">{poseLabel}</div>
+              </div>
             </div>
           </section>
 
@@ -386,6 +418,8 @@ function App() {
   const [toast, setToast] = useState('')
   const [activeNav, setActiveNav] = useState('Control')
   const [systemStatus, setSystemStatus] = useState(null)
+  const [distanceLive, setDistanceLive] = useState(false)
+  const [distanceCm, setDistanceCm] = useState(null)
 
   useEffect(() => {
     let timeout
@@ -413,15 +447,27 @@ function App() {
 
         const data = await response.json()
         const cpuTemp = Number(data.cpu_temp_c)
+        const batteryVoltage = Number(data.battery_voltage)
 
         if (!cancelled) {
           setSystemStatus({
             online: data.online === true,
             cpuTemp: Number.isFinite(cpuTemp) ? cpuTemp : null,
+            batteryVoltage: Number.isFinite(batteryVoltage) ? batteryVoltage : null,
+            pose: typeof data.pose === 'string' ? data.pose : null,
+            bodyControllerOnline: data.body_controller_online === true,
           })
         }
       } catch {
-        if (!cancelled) setSystemStatus({ online: false, cpuTemp: null })
+        if (!cancelled) {
+          setSystemStatus({
+            online: false,
+            cpuTemp: null,
+            batteryVoltage: null,
+            pose: null,
+            bodyControllerOnline: false,
+          })
+        }
       }
     }
 
@@ -434,6 +480,36 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!distanceLive) return undefined
+
+    let cancelled = false
+
+    const refreshDistance = async () => {
+      try {
+        const response = await fetch('/api/distance', { cache: 'no-store' })
+        if (!response.ok) throw new Error(`Distance ${response.status}`)
+
+        const data = await response.json()
+        const distance = Number(data.distance_cm)
+
+        if (!cancelled && Number.isFinite(distance)) {
+          setDistanceCm(distance)
+        }
+      } catch {
+        if (!cancelled) setDistanceLive(false)
+      }
+    }
+
+    refreshDistance()
+    const interval = window.setInterval(refreshDistance, 1000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [distanceLive])
+
   const isOnline = systemStatus?.online === true
   const connectionLabel = systemStatus == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
   const dotStyle = systemStatus == null
@@ -443,7 +519,16 @@ function App() {
       : undefined
 
   const screens = {
-    Control: <ControlScreen cpuTemp={systemStatus?.cpuTemp ?? null} />,
+    Control: (
+      <ControlScreen
+        cpuTemp={systemStatus?.cpuTemp ?? null}
+        batteryVoltage={systemStatus?.batteryVoltage ?? null}
+        pose={systemStatus?.pose ?? null}
+        distanceCm={distanceCm}
+        distanceLive={distanceLive}
+        onToggleDistance={() => setDistanceLive((current) => !current)}
+      />
+    ),
     Camera: <CameraScreen />,
     Actions: <ActionsScreen />,
     Tune: <TuneScreen />,
