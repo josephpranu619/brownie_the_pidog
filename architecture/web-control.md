@@ -45,6 +45,22 @@ flowchart LR
 
 Node.js and the Vite development server therefore do not need to remain active in production merely to render the application.
 
+## PWA and secure-origin model
+
+Brownie's frontend includes a web app manifest, app metadata, theme colors, and app-icon support so it is structurally PWA-ready.
+
+The current LAN development URL uses plain HTTP. That is acceptable for normal frontend development, but production PWA features such as service workers and a reliable install experience should be exposed from a trusted secure origin.
+
+```mermaid
+flowchart LR
+    Dev["Development\nHTTP on LAN"] --> Test["React UI testing"]
+    Production["Production\ntrusted HTTPS"] --> Install["Installable PWA"]
+    Install --> Cache["Service worker / offline shell"]
+    Install --> Secure["Secure browser APIs"]
+```
+
+Brownie should therefore keep the simple LAN HTTP workflow for development and add a trusted HTTPS endpoint before the PWA installation/offline phase is considered complete. Tailscale is a natural candidate because Brownie already has a Tailscale network interface, but the final serving method should be chosen and verified separately.
+
 ## Target control architecture
 
 Brownie's web interface should not create its own `Pidog()` instance. Instead, all control surfaces should eventually route commands through the existing body controller.
