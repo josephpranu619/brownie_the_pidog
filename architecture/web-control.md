@@ -191,9 +191,33 @@ flowchart LR
 
 Camera streaming is demand-driven like ultrasonic ranging, but its resource cost is much larger. When LIVE is OFF there should be no `rpicam-vid` encoder process created by the web app. When LIVE is ON, CPU usage, temperature, and battery behavior should be measured using the existing telemetry dashboard.
 
-The initial implementation intentionally permits only one active browser camera stream. A second concurrent request is rejected instead of creating another encoder process, preventing accidental duplicate CPU load during measurement.
+The current camera prototype has one active encoder/stream owner. If a second browser starts LIVE, it replaces the first stream, so the first viewer freezes. A future shared camera broadcaster should allow multiple viewers to consume the same encoded frames without launching duplicate camera encoders or stealing the stream from one another.
 
 For this milestone FastAPI temporarily owns the camera subprocess because the purpose is to validate streaming and measure its cost. This is not the final autonomous-vision architecture. Once Brownie uses the camera for face tracking, perception, or other autonomous behavior, camera ownership should move to a dedicated controller such as `brownie-camd` so one camera owner can serve both autonomous vision and web viewers without competing for the OV5647 device.
+
+## Autonomous vs manual control authority
+
+Brownie is autonomous by default. Opening the web app does not grant it servo authority. A browser must explicitly acquire a short-lived manual-control lease before manual motion commands are accepted.
+
+```mermaid
+flowchart LR
+    Auto["AUTONOMOUS\ndefault"] -->|Acquire| Manual["MANUAL\none browser owner"]
+    Manual -->|Heartbeat about every 2.5 s| Bodyd[brownie-bodyd]
+    Manual -->|Release or 8 s timeout| Auto
+    Manual --> Stand[Stand]
+    Manual --> Sit[Sit]
+    Any["Any control mode"] --> Stop[STOP]
+```
+
+`brownie-bodyd` is the authority for this lease. The lease ID and expiry are held only in memory; there is no watchdog thread and no disk write. The active lease lasts eight seconds and is refreshed by browser heartbeats. If the browser closes, the network disappears, FastAPI dies, or heartbeats otherwise stop, the lease expires naturally and Brownie returns to autonomous mode.
+
+Only one client can own Manual Control at a time. Other browsers may continue viewing telemetry and camera output but cannot take over motion authority until the existing lease is released or expires. FastAPI creates the opaque lease ID and forwards acquire, heartbeat, release, and movement requests to `brownie-bodyd`; the React UI is not trusted as the enforcement boundary.
+
+The first live web-motion milestone deliberately enables only **Stand** and **Sit**, and both commands require the requesting browser's current manual lease. The pose card updates immediately when the controller accepts one of these transitions. **Lie, body D-pad, and head D-pad remain disabled** until they are implemented and tested separately.
+
+The web **STOP** command is always accepted by `brownie-bodyd`, including in autonomous mode, and calls the existing body-stop path without forcing Brownie to lie down. Posture transitions are issued asynchronously so the controller remains available to receive a STOP request while a movement is underway. This STOP is a software body-motion stop through the current single Pidog owner, not a hardware power cut; future autonomous motion sources must also route through the same control authority for the stop guarantee to cover them.
+
+Camera streaming is independent of control authority: camera LIVE may be used in either Autonomous or Manual mode.
 
 ## Initial UI direction
 
@@ -201,10 +225,11 @@ The frontend includes or targets:
 
 - on-demand live camera view
 - battery, distance, CPU usage/temperature, and pose status
-- stand / sit / lie controls
-- emergency stop
-- body directional control
-- head directional control
+- leased autonomous/manual control mode
+- live stand / sit / stop controls
+- future lie control
+- future body directional control
+- future head directional control
 - customizable Brownie actions
 - Brownie tuning parameters
 - mobile bottom navigation
@@ -225,8 +250,8 @@ flowchart TD
     App --> Settings[Settings]
 
     Control --> Status[Telemetry / status]
-    Control --> Posture[Posture + emergency stop]
-    Control --> Manual[Body + head manual control]
+    Control --> Posture[Posture + stop]
+    Control --> Manual[Autonomous / manual lease]
 
     Camera --> Preview[Large live preview]
     Camera --> CamTools[Snapshot / fullscreen / camera-head tools]
