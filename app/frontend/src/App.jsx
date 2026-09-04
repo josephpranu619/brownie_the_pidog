@@ -15,17 +15,48 @@ const quickActions = [
   ['🐾', 'Come here', 'Custom macro'],
 ]
 
-function ActionButton({ children, action, className = '' }) {
-  const event = new CustomEvent('brownie-demo-action', { detail: action })
+const navItems = [
+  ['⌂', 'Control'],
+  ['◉', 'Camera'],
+  ['✦', 'Actions'],
+  ['⚙', 'Settings'],
+]
 
+function sendDemoAction(action) {
+  window.dispatchEvent(new CustomEvent('brownie-demo-action', { detail: action }))
+}
+
+function ActionButton({ children, action, className = '', ...props }) {
   return (
     <button
       type="button"
       className={className}
-      onClick={() => window.dispatchEvent(event)}
+      onClick={() => sendDemoAction(action)}
+      {...props}
     >
       {children}
     </button>
+  )
+}
+
+function CameraPreview({ large = false }) {
+  return (
+    <div className={`card camera ${large ? 'camera-large' : ''}`}>
+      <div className="camera-view">
+        <div className="fake-room">
+          <div className="floor" />
+          <div className="dog" aria-hidden="true">🐕‍🦺</div>
+        </div>
+        <div className="camera-top">
+          <div className="pill live"><span /> LIVE</div>
+          <div className="pill">720p · 24 fps</div>
+        </div>
+        <div className="camera-label">
+          <h1>Brownie Cam</h1>
+          <p>Front camera · simulated preview</p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -42,6 +73,167 @@ function DPad({ label, prefix = '' }) {
         <ActionButton className="dpad-button right" action={name('right')} aria-label={`${label} right`}>▶</ActionButton>
         <ActionButton className="dpad-button down" action={name('down')} aria-label={`${label} down`}>▼</ActionButton>
       </div>
+    </div>
+  )
+}
+
+function ControlScreen() {
+  return (
+    <>
+      <section className="main-grid">
+        <CameraPreview />
+
+        <div className="side-column">
+          <section className="card panel">
+            <div className="section-title"><strong>Status</strong><span>SIMULATED</span></div>
+            <div className="telemetry">
+              {telemetry.map(([key, value, unit]) => (
+                <div className="metric" key={key}>
+                  <div className="metric-key">{key}</div>
+                  <div className={`metric-value ${key === 'Pose' ? 'pose' : ''}`}>
+                    {value}{unit && <span className="metric-unit">{unit}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="card panel">
+            <div className="section-title"><strong>Posture</strong><span>QUICK</span></div>
+            <div className="control-grid">
+              <ActionButton className="action primary" action="Stand">Stand</ActionButton>
+              <ActionButton className="action" action="Sit">Sit</ActionButton>
+              <ActionButton className="action" action="Lie down">Lie</ActionButton>
+              <ActionButton className="action danger" action="Emergency stop">STOP</ActionButton>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section className="card bottom-sheet">
+        <div className="section-title"><strong>Manual control</strong><span>DEMO CONTROLS</span></div>
+        <div className="joystick-wrap">
+          <DPad label="BODY" prefix="Body " />
+          <DPad label="HEAD" prefix="Head " />
+        </div>
+      </section>
+
+      <section className="card bottom-sheet">
+        <div className="section-title"><strong>Brownie actions</strong><span>CUSTOMIZABLE</span></div>
+        <div className="quick-row">
+          {quickActions.map(([icon, name, description]) => (
+            <ActionButton className="quick" action={name} key={name}>
+              <b>{icon} {name}</b>
+              <span>{description}</span>
+            </ActionButton>
+          ))}
+        </div>
+      </section>
+    </>
+  )
+}
+
+function CameraScreen() {
+  return (
+    <div className="screen-stack">
+      <div className="screen-heading">
+        <div>
+          <span className="eyebrow">CAMERA</span>
+          <h1>Brownie's view</h1>
+          <p>Dedicated camera controls will live here without crowding the main controller.</p>
+        </div>
+        <span className="sim-badge">SIMULATED</span>
+      </div>
+
+      <CameraPreview large />
+
+      <section className="camera-tools">
+        <div className="card panel tool-card">
+          <div className="section-title"><strong>View</strong><span>PREVIEW</span></div>
+          <div className="control-grid">
+            <ActionButton className="action primary" action="Take snapshot">Snapshot</ActionButton>
+            <ActionButton className="action" action="Fullscreen camera">Fullscreen</ActionButton>
+          </div>
+        </div>
+
+        <div className="card panel tool-card">
+          <div className="section-title"><strong>Head camera</strong><span>POSITION</span></div>
+          <div className="mini-actions">
+            <ActionButton className="action" action="Center head">Center head</ActionButton>
+            <ActionButton className="action" action="Follow mode">Follow mode</ActionButton>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ActionsScreen() {
+  return (
+    <div className="screen-stack">
+      <div className="screen-heading">
+        <div>
+          <span className="eyebrow">ACTIONS</span>
+          <h1>Brownie's behaviors</h1>
+          <p>This will become the home for built-in actions and your own reusable macros.</p>
+        </div>
+        <span className="sim-badge">SIMULATED</span>
+      </div>
+
+      <section className="actions-library">
+        {quickActions.map(([icon, name, description]) => (
+          <ActionButton className="card behavior-card" action={name} key={name}>
+            <span className="behavior-icon">{icon}</span>
+            <span className="behavior-copy">
+              <b>{name}</b>
+              <small>{description}</small>
+            </span>
+            <span className="behavior-play">▶</span>
+          </ActionButton>
+        ))}
+
+        <ActionButton className="card behavior-card add-behavior" action="Create custom action">
+          <span className="behavior-icon">＋</span>
+          <span className="behavior-copy">
+            <b>New custom action</b>
+            <small>Combine movement, head, tail and sound later</small>
+          </span>
+        </ActionButton>
+      </section>
+    </div>
+  )
+}
+
+function SettingsScreen() {
+  return (
+    <div className="screen-stack">
+      <div className="screen-heading">
+        <div>
+          <span className="eyebrow">SETTINGS</span>
+          <h1>App preferences</h1>
+          <p>These controls are visual placeholders until the backend and real device state exist.</p>
+        </div>
+        <span className="sim-badge">SIMULATED</span>
+      </div>
+
+      <section className="card settings-card">
+        <div className="setting-row">
+          <div><b>Camera quality</b><span>720p · balanced for Raspberry Pi 4</span></div>
+          <button type="button" className="setting-value" onClick={() => sendDemoAction('Camera quality')}>720p</button>
+        </div>
+        <div className="setting-row">
+          <div><b>Movement speed</b><span>Default manual-control speed</span></div>
+          <button type="button" className="setting-value" onClick={() => sendDemoAction('Movement speed')}>Normal</button>
+        </div>
+        <div className="setting-row">
+          <div><b>Low-bandwidth mode</b><span>Future option for slower connections</span></div>
+          <button type="button" className="toggle-demo" onClick={() => sendDemoAction('Low-bandwidth mode')} aria-label="Low-bandwidth mode demo toggle"><span /></button>
+        </div>
+        <div className="setting-row">
+          <div><b>Haptic feedback</b><span>Phone feedback for control presses</span></div>
+          <button type="button" className="toggle-demo on" onClick={() => sendDemoAction('Haptic feedback')} aria-label="Haptic feedback demo toggle"><span /></button>
+        </div>
+      </section>
     </div>
   )
 }
@@ -66,9 +258,11 @@ function App() {
     }
   }, [])
 
-  const changeNav = (name) => {
-    setActiveNav(name)
-    window.dispatchEvent(new CustomEvent('brownie-demo-action', { detail: name }))
+  const screens = {
+    Control: <ControlScreen />,
+    Camera: <CameraScreen />,
+    Actions: <ActionsScreen />,
+    Settings: <SettingsScreen />,
   }
 
   return (
@@ -89,83 +283,15 @@ function App() {
           <div className="online"><span className="dot" /> Online</div>
         </header>
 
-        <section className="main-grid">
-          <div className="card camera">
-            <div className="camera-view">
-              <div className="fake-room">
-                <div className="floor" />
-                <div className="dog" aria-hidden="true">🐕‍🦺</div>
-              </div>
-              <div className="camera-top">
-                <div className="pill live"><span /> LIVE</div>
-                <div className="pill">720p · 24 fps</div>
-              </div>
-              <div className="camera-label">
-                <h1>Brownie Cam</h1>
-                <p>Front camera · simulated preview</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="side-column">
-            <section className="card panel">
-              <div className="section-title"><strong>Status</strong><span>SIMULATED</span></div>
-              <div className="telemetry">
-                {telemetry.map(([key, value, unit]) => (
-                  <div className="metric" key={key}>
-                    <div className="metric-key">{key}</div>
-                    <div className={`metric-value ${key === 'Pose' ? 'pose' : ''}`}>
-                      {value}{unit && <span className="metric-unit">{unit}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="card panel">
-              <div className="section-title"><strong>Posture</strong><span>QUICK</span></div>
-              <div className="control-grid">
-                <ActionButton className="action primary" action="Stand">Stand</ActionButton>
-                <ActionButton className="action" action="Sit">Sit</ActionButton>
-                <ActionButton className="action" action="Lie down">Lie</ActionButton>
-                <ActionButton className="action danger" action="Emergency stop">STOP</ActionButton>
-              </div>
-            </section>
-          </div>
-        </section>
-
-        <section className="card bottom-sheet">
-          <div className="section-title"><strong>Manual control</strong><span>DEMO CONTROLS</span></div>
-          <div className="joystick-wrap">
-            <DPad label="BODY" prefix="Body " />
-            <DPad label="HEAD" prefix="Head " />
-          </div>
-        </section>
-
-        <section className="card bottom-sheet">
-          <div className="section-title"><strong>Brownie actions</strong><span>CUSTOMIZABLE</span></div>
-          <div className="quick-row">
-            {quickActions.map(([icon, name, description]) => (
-              <ActionButton className="quick" action={name} key={name}>
-                <b>{icon} {name}</b>
-                <span>{description}</span>
-              </ActionButton>
-            ))}
-          </div>
-        </section>
+        {screens[activeNav]}
       </main>
 
       <nav className="bottom-nav" aria-label="Brownie app sections">
-        {[
-          ['⌂', 'Control'],
-          ['◉', 'Camera'],
-          ['✦', 'Actions'],
-          ['⚙', 'Settings'],
-        ].map(([icon, name]) => (
+        {navItems.map(([icon, name]) => (
           <button
             type="button"
             className={activeNav === name ? 'active' : ''}
-            onClick={() => changeNav(name)}
+            onClick={() => setActiveNav(name)}
             key={name}
           >
             <span className="nav-icon">{icon}</span>
