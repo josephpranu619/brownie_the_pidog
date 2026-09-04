@@ -31,7 +31,8 @@ CAMERA_COMMAND = [
 
 _cpu_sample_lock = threading.Lock()
 _previous_cpu_sample = None
-_camera_stream_lock = threading.Lock()
+_camera_process_lock = threading.RLock()
+_camera_process = None
 
 
 def read_cpu_temp_c():
@@ -122,17 +123,64 @@ def body_command(command):
         return None
 
 
-def camera_mjpeg_stream():
-    process = None
+def _terminate_camera_process(process):
+    if process is None:
+        return
 
-    try:
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1.0)
+
+    if process.stdout is not None:
+        try:
+            process.stdout.close()
+        except OSError:
+            pass
+
+
+def start_camera_process():
+    """Start one camera encoder, replacing any stale/previous stream process."""
+    global _camera_process
+
+    with _camera_process_lock:
+        previous = _camera_process
+        _camera_process = None
+
+        if previous is not None:
+            _terminate_camera_process(previous)
+
         process = subprocess.Popen(
             CAMERA_COMMAND,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             bufsize=0,
         )
+        _camera_process = process
+        return process
 
+
+def stop_camera_process(expected_process=None):
+    """Stop the active camera, without letting an old stream kill a newer one."""
+    global _camera_process
+
+    with _camera_process_lock:
+        process = expected_process if expected_process is not None else _camera_process
+        if process is None:
+            return False
+
+        if expected_process is None or _camera_process is expected_process:
+            _camera_process = None
+
+        _terminate_camera_process(process)
+        return True
+
+
+def camera_mjpeg_stream(process):
+    try:
         if process.stdout is None:
             raise RuntimeError("Camera stream stdout unavailable")
 
@@ -169,19 +217,7 @@ def camera_mjpeg_stream():
                     + b"\r\n"
                 )
     finally:
-        if process is not None:
-            if process.stdout is not None:
-                process.stdout.close()
-
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=1.0)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=1.0)
-
-        _camera_stream_lock.release()
+        stop_camera_process(expected_process=process)
 
 
 @app.get("/api/system")
@@ -220,14 +256,21 @@ def get_distance():
 
 @app.get("/api/camera/stream")
 def get_camera_stream():
-    if not _camera_stream_lock.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="Camera stream already active")
+    process = start_camera_process()
 
     return StreamingResponse(
-        camera_mjpeg_stream(),
+        camera_mjpeg_stream(process),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
         },
     )
+
+
+@app.post("/api/camera/stop")
+def stop_camera_stream():
+    return {
+        "camera_live": False,
+        "stopped": stop_camera_process(),
+    }
