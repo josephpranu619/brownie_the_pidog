@@ -9,7 +9,7 @@ from pathlib import Path
 SOCKET_PATH = Path("/tmp/brownie-body.sock")
 
 DOG = None
-
+CURRENT_POSE = None
 
 
 def initialize_body_to_pose(pose):
@@ -17,7 +17,7 @@ def initialize_body_to_pose(pose):
     Create one persistent Pidog instance directly in the explicitly requested pose.
     This function is NOT called automatically.
     """
-    global DOG
+    global DOG, CURRENT_POSE
 
     if DOG is not None:
         return
@@ -39,10 +39,42 @@ def initialize_body_to_pose(pose):
         head_init_angles=[0, 0, 0],
         tail_init_angle=[0],
     )
+    CURRENT_POSE = pose
 
 
 def body_initialized():
     return DOG is not None
+
+
+def read_battery_voltage():
+    try:
+        from robot_hat import device
+
+        return round(float(device.get_battery_voltage()), 2)
+    except Exception:
+        return None
+
+
+def read_distance_cm():
+    """Take one ultrasonic measurement without creating a second Pidog instance."""
+    if DOG is not None:
+        try:
+            value = float(DOG.ultrasonic.read_distance())
+            return round(value, 1) if value > 0 else None
+        except Exception:
+            return None
+
+    from robot_hat import Pin, Ultrasonic
+
+    echo = Pin("D0")
+    trig = Pin("D1")
+    ultrasonic = Ultrasonic(trig, echo, timeout=0.017)
+
+    try:
+        value = float(ultrasonic.read())
+        return round(value, 1) if value > 0 else None
+    finally:
+        ultrasonic.close()
 
 
 def shutdown_body_preserve_posture():
@@ -89,16 +121,32 @@ def shutdown_body_preserve_posture():
 
 
 def handle(command):
+    global CURRENT_POSE
+
     if command == "status":
         return {
             "ok": True,
             "body_initialized": body_initialized(),
+            "pose": CURRENT_POSE,
+            "battery_voltage": read_battery_voltage(),
             "message": (
                 "Brownie body controller owns the body."
                 if body_initialized()
                 else "Brownie body controller is running passively."
             ),
         }
+
+    if command == "distance":
+        try:
+            return {
+                "ok": True,
+                "distance_cm": read_distance_cm(),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": f"Distance read failed: {exc}",
+            }
 
     if command == "stand":
         if not body_initialized():
@@ -108,6 +156,7 @@ def handle(command):
             DOG.body_stop()
             DOG.do_action("stand", speed=70)
             DOG.wait_all_done()
+            CURRENT_POSE = "stand"
             message = "Brownie moved to stand posture."
 
         return {
@@ -127,6 +176,7 @@ def handle(command):
         DOG.body_stop()
         DOG.do_action("sit", speed=70)
         DOG.wait_all_done()
+        CURRENT_POSE = "sit"
 
         return {
             "ok": True,
