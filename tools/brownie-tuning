@@ -60,6 +60,83 @@ def set_value(key, label, guidance):
     pause()
 
 
+def get_speaker_volume():
+    p = subprocess.run(
+        ["amixer", "-c", "1", "sget", "robot-hat speaker"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    for line in p.stdout.splitlines():
+        if "Front Left:" in line and "[" in line and "%]" in line:
+            start = line.find("[") + 1
+            end = line.find("%]", start)
+            if start > 0 and end > start:
+                return int(line[start:end])
+
+    return None
+
+
+def show_speaker():
+    volume = get_speaker_volume()
+
+    print("\nBrownie Speaker Volume")
+    print("----------------------")
+
+    if volume is None:
+        print("Unable to read speaker volume.")
+    else:
+        print(f"Current volume: {volume}%")
+
+    print()
+    print("This controls the Robot HAT hardware speaker output.")
+    print("0% = silent")
+    print("100% = maximum hardware volume")
+
+    pause()
+
+
+def set_speaker():
+    current = get_speaker_volume()
+
+    print("\nSet Brownie Speaker Volume")
+    print("--------------------------")
+    print(f"Current volume: {current if current is not None else 'unknown'}%")
+    print()
+    print("Enter a value from 0 to 100.")
+
+    value = input("New speaker volume (%), or Enter to cancel: ").strip()
+
+    if not value:
+        print("Cancelled.")
+        pause()
+        return
+
+    try:
+        volume = int(value)
+    except ValueError:
+        print("Invalid value. Enter a whole number from 0 to 100.")
+        pause()
+        return
+
+    if not 0 <= volume <= 100:
+        print("Invalid value. Volume must be between 0 and 100.")
+        pause()
+        return
+
+    subprocess.run(
+        ["amixer", "-c", "1", "sset", "robot-hat speaker", f"{volume}%"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+    )
+
+    updated = get_speaker_volume()
+    print(f"\nNew speaker volume: {updated}%")
+
+    pause()
+
+
 def show_mic():
     print("\nCurrent PulseAudio default source")
     print("---------------------------------")
@@ -83,6 +160,8 @@ def choose():
         "📊  Show current voice tuning",
         "⏱️   Set silence duration",
         "🎤  Set silence threshold",
+        "🔊  Show speaker volume",
+        "🔉  Set speaker volume",
         "🎚️   Show microphone source",
         "🚪  Back",
     ]
@@ -134,6 +213,12 @@ def main():
                 "Higher values make background noise more likely to count as silence.\n"
                 "Too high can cause quiet speech to be cut off.",
             )
+
+        elif "Show speaker volume" in selection:
+            show_speaker()
+
+        elif "Set speaker volume" in selection:
+            set_speaker()
 
         elif "Show microphone source" in selection:
             show_mic()
