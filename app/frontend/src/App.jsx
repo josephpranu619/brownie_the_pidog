@@ -1,13 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 
-const telemetry = [
-  ['Battery', '86', '%'],
-  ['Distance', '74', 'cm'],
-  ['CPU', '49', '°C'],
-  ['Pose', 'Stand', ''],
-]
-
 const quickActions = [
   ['😊', 'Happy', 'Tail + head gesture'],
   ['👀', 'Curious', 'Look + head tilt'],
@@ -78,7 +71,14 @@ function DPad({ label, prefix = '' }) {
   )
 }
 
-function ControlScreen() {
+function ControlScreen({ cpuTemp }) {
+  const telemetry = [
+    ['Battery', '86', '%'],
+    ['Distance', '74', 'cm'],
+    ['CPU', cpuTemp == null ? '—' : cpuTemp.toFixed(1), '°C'],
+    ['Pose', 'Stand', ''],
+  ]
+
   return (
     <>
       <section className="main-grid">
@@ -86,7 +86,7 @@ function ControlScreen() {
 
         <div className="side-column">
           <section className="card panel">
-            <div className="section-title"><strong>Status</strong><span>SIMULATED</span></div>
+            <div className="section-title"><strong>Status</strong><span>CPU LIVE · OTHERS SIMULATED</span></div>
             <div className="telemetry">
               {telemetry.map(([key, value, unit]) => (
                 <div className="metric" key={key}>
@@ -385,6 +385,7 @@ function SettingsScreen() {
 function App() {
   const [toast, setToast] = useState('')
   const [activeNav, setActiveNav] = useState('Control')
+  const [systemStatus, setSystemStatus] = useState(null)
 
   useEffect(() => {
     let timeout
@@ -402,8 +403,47 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const refreshStatus = async () => {
+      try {
+        const response = await fetch('/api/status', { cache: 'no-store' })
+        if (!response.ok) throw new Error(`Status ${response.status}`)
+
+        const data = await response.json()
+        const cpuTemp = Number(data.cpu_temp_c)
+
+        if (!cancelled) {
+          setSystemStatus({
+            online: data.online === true,
+            cpuTemp: Number.isFinite(cpuTemp) ? cpuTemp : null,
+          })
+        }
+      } catch {
+        if (!cancelled) setSystemStatus({ online: false, cpuTemp: null })
+      }
+    }
+
+    refreshStatus()
+    const interval = window.setInterval(refreshStatus, 5000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  const isOnline = systemStatus?.online === true
+  const connectionLabel = systemStatus == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
+  const dotStyle = systemStatus == null
+    ? { background: '#8d98a8', boxShadow: 'none' }
+    : !isOnline
+      ? { background: '#ff6b6b', boxShadow: 'none' }
+      : undefined
+
   const screens = {
-    Control: <ControlScreen />,
+    Control: <ControlScreen cpuTemp={systemStatus?.cpuTemp ?? null} />,
     Camera: <CameraScreen />,
     Actions: <ActionsScreen />,
     Tune: <TuneScreen />,
@@ -425,7 +465,7 @@ function App() {
               <div className="subtitle">PiDog Control</div>
             </div>
           </div>
-          <div className="online"><span className="dot" /> Online</div>
+          <div className="online"><span className="dot" style={dotStyle} /> {connectionLabel}</div>
         </header>
 
         {screens[activeNav]}
