@@ -33,6 +33,21 @@ flowchart LR
 
 This development server is temporary tooling, not the intended production runtime.
 
+### Development runtime: two servers
+
+Once the frontend starts reading real Brownie data, development uses two separate processes at the same time:
+
+```mermaid
+flowchart LR
+    Browser[Phone / laptop browser] -->|HTTP :5173| Vite["Vite frontend server"]
+    Vite -->|proxy /api/*| FastAPI["FastAPI backend\n:8000"]
+    FastAPI --> System["Brownie system state\nCPU / status"]
+```
+
+Vite is the development server for the app the user sees. FastAPI is the backend that exposes Brownie's real data and will later mediate robot-control requests. The Vite development proxy forwards `/api/*` requests to FastAPI at `127.0.0.1:8000`, so the browser can continue talking only to the frontend origin on port 5173.
+
+During development, **both processes must be running**. If Vite is stopped, the app on port 5173 is unreachable. If FastAPI is stopped, the UI can still load but API requests fail with a connection-refused proxy error. This two-process arrangement is development-only; production should present a simpler single app endpoint to the user.
+
 For production, the React/PWA source will be compiled into ordinary static web files. Brownie will serve those files with a small static server while the phone or tablet performs the actual UI rendering.
 
 ```mermaid
