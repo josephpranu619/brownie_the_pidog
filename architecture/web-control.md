@@ -135,6 +135,35 @@ The first frontend prototype includes simulated versions of:
 
 These controls are currently design targets only. Frontend prototyping must not imply that a corresponding hardware command is already enabled or safe.
 
+## App screen structure
+
+The frontend uses four persistent bottom-navigation destinations. The main Control screen stays focused on driving Brownie, while camera-heavy and customization features get their own screens so they can evolve independently.
+
+```mermaid
+flowchart TD
+    App[Brownie PWA]
+    App --> Control[Control]
+    App --> Camera[Camera]
+    App --> Actions[Actions]
+    App --> Settings[Settings]
+
+    Control --> Status[Telemetry / status]
+    Control --> Posture[Posture + emergency stop]
+    Control --> Manual[Body + head manual control]
+
+    Camera --> Preview[Large live preview]
+    Camera --> CamTools[Snapshot / fullscreen / camera-head tools]
+
+    Actions --> BuiltIn[Built-in behaviors]
+    Actions --> Custom[Custom macros]
+
+    Settings --> Video[Camera quality]
+    Settings --> Motion[Movement preferences]
+    Settings --> Network[Bandwidth preferences]
+```
+
+Camera is intentionally separated from Control because video streaming may become one of the larger Raspberry Pi resource consumers. Keeping it as a distinct screen gives Brownie room to use different frame-rate, resolution, or stream-lifecycle policies without complicating the primary movement controller.
+
 ## Safety boundary
 
 The web UI is a command surface, not the hardware authority.
