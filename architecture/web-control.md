@@ -135,6 +135,33 @@ The intended production model is:
 
 The UI itself should therefore create very little Raspberry Pi load. Higher-cost features such as camera streaming, computer vision, local AI inference, or high-resolution video encoding will be measured separately before being enabled by default.
 
+## Telemetry and sensor polling policy
+
+Telemetry should not automatically mean every sensor runs continuously. Brownie should distinguish lightweight health/state reads from sensors that actively perform measurements.
+
+```mermaid
+flowchart TD
+    UI[Control screen telemetry]
+    UI --> Slow["Slow health refresh\nabout every 5 s"]
+    UI --> Demand["Demand-driven sensor reads"]
+
+    Slow --> CPU[CPU temperature]
+    Slow --> Battery[Battery voltage]
+    Slow --> Pose[Controller pose state]
+
+    Demand --> Distance[Ultrasonic distance]
+    Distance -->|Toggle ON| Poll["Read about every 1 s"]
+    Distance -->|Toggle OFF| Hold["No sensor requests\nretain last value"]
+```
+
+CPU temperature, battery voltage, and pose are suitable for the existing slow status refresh because their read cost is small and they are useful as persistent health/state indicators.
+
+Ultrasonic distance is intentionally different. The Control screen starts with live distance OFF. Turning it on requests a measurement about once per second. Turning it off stops distance requests entirely and leaves the last successful reading visible. This avoids continuous sensor activity when the user does not need ranging data.
+
+Sensor access still follows the one-hardware-owner rule: the web API does not instantiate `Pidog()` or directly own robot GPIO. It asks `brownie-bodyd`, which performs the measurement using its existing PiDog ultrasonic device when initialized, or a short-lived Robot HAT ultrasonic device while the body controller is passive.
+
+Battery is initially displayed as measured voltage rather than a fabricated percentage. A percentage indicator should only be added after a deliberate battery-voltage mapping/calibration decision.
+
 ## Initial UI direction
 
 The first frontend prototype includes simulated versions of:
