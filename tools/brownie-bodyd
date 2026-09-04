@@ -99,6 +99,10 @@ def manual_lease_active():
     return True
 
 
+def manual_lease_owned_by(lease_id):
+    return bool(lease_id) and manual_lease_active() and MANUAL_LEASE_ID == lease_id
+
+
 def control_state():
     active = manual_lease_active()
     remaining = max(0.0, MANUAL_LEASE_EXPIRES_AT - time.monotonic()) if active else 0.0
@@ -255,47 +259,78 @@ def handle(command):
                 "error": f"Distance read failed: {exc}",
             }
 
-    if command == "stand":
+    if verb == "stand":
+        if not manual_lease_owned_by(argument):
+            return {
+                "ok": False,
+                "error": "Stand requires the active manual-control lease for this client.",
+                **control_state(),
+            }
+
         if not body_initialized():
             initialize_body_to_pose("stand")
             message = "Brownie body initialized directly into stand posture."
         else:
             DOG.body_stop()
             DOG.do_action("stand", speed=70)
-            DOG.wait_all_done()
             CURRENT_POSE = "stand"
-            message = "Brownie moved to stand posture."
+            message = "Brownie started moving to stand posture."
 
         return {
             "ok": True,
             "body_initialized": True,
             "pose": "stand",
+            **control_state(),
             "message": message,
         }
 
-    if command == "sit":
+    if verb == "sit":
+        if not manual_lease_owned_by(argument):
+            return {
+                "ok": False,
+                "error": "Sit requires the active manual-control lease for this client.",
+                **control_state(),
+            }
+
         if not body_initialized():
             return {
                 "ok": False,
                 "error": "Body must already be initialized before sit is enabled.",
+                **control_state(),
             }
 
         DOG.body_stop()
         DOG.do_action("sit", speed=70)
-        DOG.wait_all_done()
         CURRENT_POSE = "sit"
 
         return {
             "ok": True,
             "body_initialized": True,
             "pose": "sit",
-            "message": "Brownie moved to sit posture.",
+            **control_state(),
+            "message": "Brownie started moving to sit posture.",
         }
 
-    if command in {"lie", "walk"}:
+    if verb == "stop":
+        if body_initialized():
+            DOG.body_stop()
+
+        return {
+            "ok": True,
+            "body_initialized": body_initialized(),
+            "pose": CURRENT_POSE,
+            **control_state(),
+            "message": (
+                "Brownie body motion stopped."
+                if body_initialized()
+                else "Brownie body is passive; no body motion to stop."
+            ),
+        }
+
+    if verb in {"lie", "walk"}:
         return {
             "ok": False,
-            "error": f"{command} is not enabled yet.",
+            "error": f"{verb} is not enabled yet.",
         }
 
     return {
@@ -328,12 +363,16 @@ def main():
 
             with conn:
                 data = conn.recv(4096).decode().strip()
+                verb = data.partition(" ")[0]
                 quiet_command = (
                     data in {"status", "distance", "control-status"}
-                    or data.startswith("manual-heartbeat ")
+                    or verb == "manual-heartbeat"
                 )
                 if not quiet_command:
-                    print(f"COMMAND: {data!r}", flush=True)
+                    safe_label = verb if verb in {
+                        "manual-acquire", "manual-release", "stand", "sit"
+                    } else data
+                    print(f"COMMAND: {safe_label!r}", flush=True)
                 response = handle(data)
                 conn.sendall((json.dumps(response) + "\n").encode())
 
