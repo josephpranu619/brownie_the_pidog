@@ -592,6 +592,7 @@ function App() {
             pose: typeof data.pose === 'string' ? data.pose : current?.pose ?? null,
             bodyControllerOnline: true,
           }))
+          setControlMode('manual')
           setToast(`${action} requested`)
         } catch {
           setToast(`${action} request failed`)
@@ -726,7 +727,7 @@ function App() {
           setControlMode(data.control_mode === 'manual' ? 'manual' : 'autonomous')
         }
       } catch {
-        if (!cancelled) setControlMode('autonomous')
+        // A posture initialization can briefly keep bodyd busy. Preserve the last known mode.
       }
     }
 
@@ -743,6 +744,15 @@ function App() {
     if (!manualLeaseId) return undefined
 
     let cancelled = false
+    let consecutiveFailures = 0
+
+    const endManualLease = () => {
+      if (cancelled) return
+      setManualLeaseId(null)
+      setControlMode('autonomous')
+      setToast('Manual control lease ended')
+      window.setTimeout(() => setToast(''), 1800)
+    }
 
     const heartbeat = async () => {
       try {
@@ -750,17 +760,24 @@ function App() {
           `/api/control/manual/heartbeat?lease_id=${encodeURIComponent(manualLeaseId)}`,
           { method: 'POST', cache: 'no-store' },
         )
-        if (!response.ok) throw new Error(`Heartbeat ${response.status}`)
 
+        if (response.status === 409) {
+          endManualLease()
+          return
+        }
+
+        if (!response.ok) {
+          consecutiveFailures += 1
+          if (consecutiveFailures >= 4) endManualLease()
+          return
+        }
+
+        consecutiveFailures = 0
         const data = await response.json()
         if (!cancelled) setControlMode(data.control_mode === 'manual' ? 'manual' : 'autonomous')
       } catch {
-        if (!cancelled) {
-          setManualLeaseId(null)
-          setControlMode('autonomous')
-          setToast('Manual control lease ended')
-          window.setTimeout(() => setToast(''), 1800)
-        }
+        consecutiveFailures += 1
+        if (consecutiveFailures >= 4) endManualLease()
       }
     }
 
