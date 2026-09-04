@@ -33,21 +33,50 @@ function ActionButton({ children, action, className = '', ...props }) {
   )
 }
 
-function CameraPreview({ large = false }) {
+function CameraPreview({ large = false, cameraLive, cameraStreamKey, onToggleCamera, onCameraError }) {
   return (
     <div className={`card camera ${large ? 'camera-large' : ''}`}>
       <div className="camera-view">
-        <div className="fake-room">
-          <div className="floor" />
-          <div className="dog" aria-hidden="true">🐕‍🦺</div>
-        </div>
+        {cameraLive ? (
+          <img
+            src={`/api/camera/stream?v=${cameraStreamKey}`}
+            alt="Live view from Brownie's front camera"
+            onError={onCameraError}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+            }}
+          />
+        ) : (
+          <div className="fake-room">
+            <div className="floor" />
+            <div className="dog" aria-hidden="true">🐕‍🦺</div>
+          </div>
+        )}
         <div className="camera-top">
-          <div className="pill live"><span /> LIVE</div>
-          <div className="pill">720p · 24 fps</div>
+          <button
+            type="button"
+            className="pill live"
+            onClick={onToggleCamera}
+            aria-pressed={cameraLive}
+            title={cameraLive ? 'Stop live camera stream' : 'Start live camera stream'}
+            style={{
+              color: 'inherit',
+              cursor: 'pointer',
+              background: cameraLive ? 'rgba(112, 70, 31, 0.78)' : undefined,
+            }}
+          >
+            <span style={cameraLive ? { background: '#55d68b' } : undefined} />
+            {cameraLive ? ' LIVE' : ' LIVE'}
+          </button>
+          <div className="pill">720p · 15 fps</div>
         </div>
         <div className="camera-label">
           <h1>Brownie Cam</h1>
-          <p>Front camera · simulated preview</p>
+          <p>{cameraLive ? 'Front camera · live stream' : 'Camera off · press LIVE to stream'}</p>
         </div>
       </div>
     </div>
@@ -88,6 +117,10 @@ function ControlScreen({
   distanceCm,
   distanceLive,
   onToggleDistance,
+  cameraLive,
+  cameraStreamKey,
+  onToggleCamera,
+  onCameraError,
 }) {
   const poseLabel = pose
     ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
@@ -97,7 +130,12 @@ function ControlScreen({
   return (
     <>
       <section className="main-grid">
-        <CameraPreview />
+        <CameraPreview
+          cameraLive={cameraLive}
+          cameraStreamKey={cameraStreamKey}
+          onToggleCamera={onToggleCamera}
+          onCameraError={onCameraError}
+        />
 
         <div className="side-column">
           <section className="card panel">
@@ -207,23 +245,29 @@ function ControlScreen({
   )
 }
 
-function CameraScreen() {
+function CameraScreen({ cameraLive, cameraStreamKey, onToggleCamera, onCameraError }) {
   return (
     <div className="screen-stack">
       <div className="screen-heading">
         <div>
           <span className="eyebrow">CAMERA</span>
           <h1>Brownie's view</h1>
-          <p>Dedicated camera controls will live here without crowding the main controller.</p>
+          <p>The camera stream only runs while LIVE is enabled.</p>
         </div>
-        <span className="sim-badge">SIMULATED</span>
+        <span className="sim-badge">ON DEMAND</span>
       </div>
 
-      <CameraPreview large />
+      <CameraPreview
+        large
+        cameraLive={cameraLive}
+        cameraStreamKey={cameraStreamKey}
+        onToggleCamera={onToggleCamera}
+        onCameraError={onCameraError}
+      />
 
       <section className="camera-tools">
         <div className="card panel tool-card">
-          <div className="section-title"><strong>View</strong><span>PREVIEW</span></div>
+          <div className="section-title"><strong>View</strong><span>LIVE WHEN ENABLED</span></div>
           <div className="control-grid">
             <ActionButton className="action primary" action="Take snapshot">Snapshot</ActionButton>
             <ActionButton className="action" action="Fullscreen camera">Fullscreen</ActionButton>
@@ -462,6 +506,8 @@ function App() {
   const [robotStatus, setRobotStatus] = useState(null)
   const [distanceLive, setDistanceLive] = useState(false)
   const [distanceCm, setDistanceCm] = useState(null)
+  const [cameraLive, setCameraLive] = useState(false)
+  const [cameraStreamKey, setCameraStreamKey] = useState(0)
 
   useEffect(() => {
     let timeout
@@ -503,6 +549,7 @@ function App() {
           setSystemHealth({ online: false, cpuTemp: null, cpuUsage: null })
           setDistanceLive(false)
           setDistanceCm(null)
+          setCameraLive(false)
         }
       }
     }
@@ -587,6 +634,19 @@ function App() {
     }
   }, [distanceLive])
 
+  const toggleCamera = () => {
+    setCameraLive((current) => {
+      if (!current) setCameraStreamKey((key) => key + 1)
+      return !current
+    })
+  }
+
+  const handleCameraError = () => {
+    setCameraLive(false)
+    setToast('Camera stream unavailable')
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
   const isOnline = systemHealth?.online === true
   const connectionLabel = systemHealth == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
   const dotStyle = systemHealth == null
@@ -594,6 +654,13 @@ function App() {
     : !isOnline
       ? { background: '#ff6b6b', boxShadow: 'none' }
       : undefined
+
+  const cameraProps = {
+    cameraLive,
+    cameraStreamKey,
+    onToggleCamera: toggleCamera,
+    onCameraError: handleCameraError,
+  }
 
   const screens = {
     Control: (
@@ -606,9 +673,10 @@ function App() {
         distanceCm={distanceCm}
         distanceLive={distanceLive}
         onToggleDistance={() => setDistanceLive((current) => !current)}
+        {...cameraProps}
       />
     ),
-    Camera: <CameraScreen />,
+    Camera: <CameraScreen {...cameraProps} />,
     Actions: <ActionsScreen />,
     Tune: <TuneScreen />,
     Settings: <SettingsScreen />,
