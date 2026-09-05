@@ -15,6 +15,7 @@ CPU_TEMP_PATH = Path("/sys/class/thermal/thermal_zone0/temp")
 CPU_STAT_PATH = Path("/proc/stat")
 BODY_SOCKET_PATH = "/tmp/brownie-body.sock"
 MIC_RECORDING_PATH = Path("/tmp/brownie-web-mic.wav")
+MIC_REPLAY_PATH = Path("/tmp/brownie-web-mic-mono.wav")
 MIC_RECORD_SECONDS = 5
 BARK_SOUND_PATH = Path.home() / "pidog" / "sounds" / "single_bark_1.mp3"
 CAMERA_COMMAND = [
@@ -264,6 +265,7 @@ def play_bark_sound():
 def record_microphone_clip():
     try:
         MIC_RECORDING_PATH.unlink(missing_ok=True)
+        MIC_REPLAY_PATH.unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -343,20 +345,43 @@ def start_microphone_replay():
     if not MIC_RECORDING_PATH.exists() or MIC_RECORDING_PATH.stat().st_size <= 44:
         raise HTTPException(status_code=409, detail="Record a microphone clip before replaying")
 
-    if shutil.which("paplay"):
-        command = ["paplay", str(MIC_RECORDING_PATH)]
-    elif shutil.which("aplay"):
-        command = ["aplay", "-D", "pulse", str(MIC_RECORDING_PATH)]
-    else:
-        raise HTTPException(status_code=503, detail="No audio playback utility is installed")
+    if not shutil.which("sox"):
+        raise HTTPException(status_code=503, detail="sox is required for microphone replay")
+    if not shutil.which("aplay"):
+        raise HTTPException(status_code=503, detail="aplay is required for microphone replay")
 
     with _mic_replay_lock:
         previous = _mic_replay_process
         if previous is not None and previous.poll() is None:
             previous.terminate()
+            try:
+                previous.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                previous.kill()
+
+        result = subprocess.run(
+            [
+                "sox",
+                str(MIC_RECORDING_PATH),
+                str(MIC_REPLAY_PATH),
+                "remix",
+                "1",
+                "gain",
+                "-n",
+                "-3",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=3.0,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or "sox failed"
+            raise HTTPException(status_code=503, detail=f"Could not prepare microphone replay: {detail}")
 
         _mic_replay_process = subprocess.Popen(
-            command,
+            ["aplay", "-D", "plughw:1,0", str(MIC_REPLAY_PATH)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
