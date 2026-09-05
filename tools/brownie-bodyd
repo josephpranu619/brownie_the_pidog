@@ -353,9 +353,32 @@ def handle(command):
         }
 
     if verb == "move":
-        lease_id, _, direction = argument.partition(" ")
-        lease_id = lease_id.strip()
-        direction = direction.strip()
+        parts = argument.split()
+        if len(parts) < 2:
+            return {
+                "ok": False,
+                "error": "Body movement command is missing lease or direction.",
+                **control_state(),
+            }
+
+        lease_id = parts[0]
+        direction = parts[1]
+
+        try:
+            speed = int(parts[2]) if len(parts) >= 3 else 80
+        except ValueError:
+            return {
+                "ok": False,
+                "error": "Movement speed must be an integer.",
+                **control_state(),
+            }
+
+        if not 30 <= speed <= 100:
+            return {
+                "ok": False,
+                "error": "Movement speed must be between 30 and 100.",
+                **control_state(),
+            }
 
         if not manual_lease_owned_by(lease_id):
             return {
@@ -394,7 +417,7 @@ def handle(command):
             }
 
         DOG.body_stop()
-        DOG.do_action(action, speed=80)
+        DOG.do_action(action, speed=speed)
         renew_manual_lease(lease_id)
 
         return {
@@ -402,8 +425,9 @@ def handle(command):
             "body_initialized": True,
             "pose": "stand",
             "direction": direction,
+            "speed": speed,
             **control_state(),
-            "message": f"Brownie started one {action} gait action.",
+            "message": f"Brownie started one {action} gait action at speed {speed}.",
         }
 
     if verb == "stop":
