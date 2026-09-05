@@ -349,6 +349,23 @@ def posture_lie(lease_id: str):
     }
 
 
+@app.post("/api/motion/body")
+def move_body(direction: str, lease_id: str):
+    if direction not in {"up", "down", "left", "right"}:
+        raise HTTPException(status_code=400, detail="Unsupported body direction")
+
+    body = require_body_response(
+        f"move {lease_id} {direction}",
+        timeout=2.0,
+    )
+
+    return {
+        "pose": body.get("pose", "stand"),
+        "direction": body.get("direction", direction),
+        "message": body.get("message", "Body movement requested"),
+    }
+
+
 @app.post("/api/motion/stop")
 def stop_motion():
     body = require_body_response("stop", timeout=2.0)
