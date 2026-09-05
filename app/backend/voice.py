@@ -315,6 +315,8 @@ def start_recording_playback(path: Path, volume: int):
         raise HTTPException(status_code=503, detail="sox is required for recording playback")
     if not shutil.which("aplay"):
         raise HTTPException(status_code=503, detail="aplay is required for recording playback")
+    if not shutil.which("pasuspender"):
+        raise HTTPException(status_code=503, detail="pasuspender is required for Robot HAT playback")
 
     volume_factor = max(0.0, min(1.0, volume / 100.0))
 
@@ -352,7 +354,7 @@ def start_recording_playback(path: Path, volume: int):
             raise HTTPException(status_code=503, detail=f"Could not prepare recording playback: {detail}")
 
         process = subprocess.Popen(
-            ["aplay", "-D", "plughw:1,0", str(REPLAY_PATH)],
+            ["pasuspender", "--", "aplay", "-D", "plughw:1,0", str(REPLAY_PATH)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
