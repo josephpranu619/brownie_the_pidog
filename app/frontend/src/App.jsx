@@ -368,144 +368,176 @@ function ActionsScreen() {
   )
 }
 
-function TuneScreen() {
-  const [silenceDuration, setSilenceDuration] = useState(3.0)
-  const [silenceThreshold, setSilenceThreshold] = useState(1800)
-  const [speakerVolume, setSpeakerVolume] = useState(60)
+function TuningSlider({ label, description, min, max, step, value, valueLabel, onChange }) {
+  return (
+    <div
+      className="setting-row"
+      style={{
+        display: 'grid',
+        gap: '12px',
+        alignItems: 'stretch',
+        padding: '16px 0',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '18px',
+        }}
+      >
+        <div style={{ display: 'grid', gap: '5px', maxWidth: '720px' }}>
+          <b>{label}</b>
+          <span style={{ lineHeight: 1.5 }}>{description}</span>
+        </div>
+        <span
+          className="setting-value"
+          style={{
+            minWidth: '72px',
+            textAlign: 'center',
+            fontSize: '13px',
+            fontWeight: 800,
+            color: '#f4f7fb',
+          }}
+        >
+          {valueLabel}
+        </span>
+      </div>
 
-  const sliderStyle = { width: 'min(360px, 48vw)', accentColor: '#e8a75d' }
-  const numberStyle = { width: '82px', textAlign: 'right' }
+      <input
+        aria-label={label}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ width: '100%', accentColor: '#e8a75d' }}
+      />
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: '10px',
+          color: '#8d98a8',
+        }}
+      >
+        <span>MIN {min}</span>
+        <span>CURRENT {valueLabel}</span>
+        <span>MAX {max}</span>
+      </div>
+    </div>
+  )
+}
+
+function TuneScreen({ movementSpeed, onMovementSpeedChange }) {
+  const defaults = {
+    silenceDuration: 3.0,
+    silenceThreshold: 1800,
+    speakerVolume: 60,
+    movementSpeed: 80,
+  }
+
+  const [silenceDuration, setSilenceDuration] = useState(defaults.silenceDuration)
+  const [silenceThreshold, setSilenceThreshold] = useState(defaults.silenceThreshold)
+  const [speakerVolume, setSpeakerVolume] = useState(defaults.speakerVolume)
+
+  const hasChanges = (
+    silenceDuration !== defaults.silenceDuration
+    || silenceThreshold !== defaults.silenceThreshold
+    || speakerVolume !== defaults.speakerVolume
+    || movementSpeed !== defaults.movementSpeed
+  )
+
+  const resetToDefaults = () => {
+    setSilenceDuration(defaults.silenceDuration)
+    setSilenceThreshold(defaults.silenceThreshold)
+    setSpeakerVolume(defaults.speakerVolume)
+    onMovementSpeedChange(defaults.movementSpeed)
+  }
 
   return (
     <div className="screen-stack">
       <div className="screen-heading">
         <div>
           <span className="eyebrow">TUNE</span>
-          <h1>Brownie tuning</h1>
-          <p>A friendlier interface for the parameters currently exposed by <code>brownie-tuning</code>. Changes are simulated for now.</p>
+          <h1>Parameter Tuning</h1>
         </div>
-        <span className="sim-badge">SIMULATED</span>
+        {hasChanges && (
+          <button
+            type="button"
+            className="sim-badge"
+            onClick={resetToDefaults}
+            style={{ cursor: 'pointer', color: '#f4f7fb' }}
+          >
+            RESET TO DEFAULT
+          </button>
+        )}
       </div>
 
-      <section className="card settings-card">
-        <div className="setting-row">
-          <div>
-            <b>Voice silence duration</b>
-            <span>How long audio must stay quiet before Hermes stops listening.</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <input
-              aria-label="Voice silence duration"
-              type="range"
-              min="0.5"
-              max="6"
-              step="0.1"
-              value={silenceDuration}
-              onChange={(event) => setSilenceDuration(Number(event.target.value))}
-              style={sliderStyle}
-            />
-            <input
-              aria-label="Voice silence duration value"
-              className="setting-value"
-              type="number"
-              min="0.5"
-              max="6"
-              step="0.1"
-              value={silenceDuration}
-              onChange={(event) => setSilenceDuration(Number(event.target.value))}
-              style={numberStyle}
-            />
-            <span>s</span>
-          </div>
+      <section className="card panel">
+        <div className="section-title">
+          <strong>WakeUp Settings</strong>
+          <span>VOICE DETECTION</span>
         </div>
 
-        <div className="setting-row">
-          <div>
-            <b>Voice silence threshold</b>
-            <span>RMS level below which Hermes treats audio as silence. Higher values tolerate more background noise, but too high can cut off quiet speech.</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <input
-              aria-label="Voice silence threshold"
-              type="range"
-              min="500"
-              max="4000"
-              step="50"
-              value={silenceThreshold}
-              onChange={(event) => setSilenceThreshold(Number(event.target.value))}
-              style={sliderStyle}
-            />
-            <input
-              aria-label="Voice silence threshold value"
-              className="setting-value"
-              type="number"
-              min="500"
-              max="4000"
-              step="50"
-              value={silenceThreshold}
-              onChange={(event) => setSilenceThreshold(Number(event.target.value))}
-              style={numberStyle}
-            />
-          </div>
-        </div>
+        <TuningSlider
+          label="Voice Silence Duration"
+          description="How long Brownie waits after you stop speaking before Hermes decides your utterance is finished. Lower values respond faster; values that are too low can cut off natural pauses."
+          min={0.5}
+          max={6}
+          step={0.1}
+          value={silenceDuration}
+          valueLabel={`${silenceDuration.toFixed(1)} s`}
+          onChange={setSilenceDuration}
+        />
 
-        <div className="setting-row">
-          <div>
-            <b>Speaker volume</b>
-            <span>Robot HAT hardware speaker output. 0% is silent; 100% is maximum hardware volume.</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <input
-              aria-label="Speaker volume"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={speakerVolume}
-              onChange={(event) => setSpeakerVolume(Number(event.target.value))}
-              style={sliderStyle}
-            />
-            <input
-              aria-label="Speaker volume value"
-              className="setting-value"
-              type="number"
-              min="0"
-              max="100"
-              step="1"
-              value={speakerVolume}
-              onChange={(event) => setSpeakerVolume(Number(event.target.value))}
-              style={numberStyle}
-            />
-            <span>%</span>
-          </div>
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <b>Microphone source</b>
-            <span>Will show Brownie's PulseAudio default source and available input devices.</span>
-          </div>
-          <button type="button" className="setting-value" onClick={() => sendDemoAction('Inspect microphone source')}>Inspect</button>
-        </div>
+        <TuningSlider
+          label="Voice Silence Threshold"
+          description="How quiet the microphone signal must be to count as silence. Higher values tolerate more background noise, but values that are too high can mistake quiet speech for silence."
+          min={500}
+          max={4000}
+          step={50}
+          value={silenceThreshold}
+          valueLabel={String(silenceThreshold)}
+          onChange={setSilenceThreshold}
+        />
       </section>
 
       <section className="card panel">
-        <div className="section-title"><strong>Pending changes</strong><span>NOT SENT TO BROWNIE</span></div>
-        <div className="telemetry">
-          <div className="metric">
-            <div className="metric-key">Silence duration</div>
-            <div className="metric-value">{silenceDuration.toFixed(1)}<span className="metric-unit">s</span></div>
-          </div>
-          <div className="metric">
-            <div className="metric-key">Silence threshold</div>
-            <div className="metric-value">{silenceThreshold}</div>
-          </div>
-          <div className="metric">
-            <div className="metric-key">Speaker</div>
-            <div className="metric-value">{speakerVolume}<span className="metric-unit">%</span></div>
-          </div>
-          <ActionButton className="action primary" action="Apply tuning settings">Apply later</ActionButton>
+        <div className="section-title">
+          <strong>Speaker Volume</strong>
+          <span>AUDIO OUTPUT</span>
         </div>
+        <TuningSlider
+          label="Robot HAT Speaker"
+          description="Controls Brownie's hardware speaker output level."
+          min={0}
+          max={100}
+          step={1}
+          value={speakerVolume}
+          valueLabel={`${speakerVolume}%`}
+          onChange={setSpeakerVolume}
+        />
+      </section>
+
+      <section className="card panel">
+        <div className="section-title">
+          <strong>Movement Speed</strong>
+          <span>BODY D-PAD · LIVE</span>
+        </div>
+        <TuningSlider
+          label="Manual Gait Speed"
+          description="Controls the gait speed used by BODY D-pad movement taps. Lower is gentler and slower; higher is quicker."
+          min={30}
+          max={100}
+          step={1}
+          value={movementSpeed}
+          valueLabel={String(movementSpeed)}
+          onChange={onMovementSpeedChange}
+        />
       </section>
     </div>
   )
@@ -527,10 +559,6 @@ function SettingsScreen() {
         <div className="setting-row">
           <div><b>Camera quality</b><span>720p · balanced for Raspberry Pi 4</span></div>
           <button type="button" className="setting-value" onClick={() => sendDemoAction('Camera quality')}>720p</button>
-        </div>
-        <div className="setting-row">
-          <div><b>Movement speed</b><span>Default manual-control speed</span></div>
-          <button type="button" className="setting-value" onClick={() => sendDemoAction('Movement speed')}>Normal</button>
         </div>
         <div className="setting-row">
           <div><b>Low-bandwidth mode</b><span>Future option for slower connections</span></div>
@@ -557,6 +585,7 @@ function App() {
   const [controlMode, setControlMode] = useState('autonomous')
   const [manualLeaseId, setManualLeaseId] = useState(null)
   const [motionBusy, setMotionBusy] = useState(false)
+  const [movementSpeed, setMovementSpeed] = useState(80)
 
   useEffect(() => {
     let timeout
@@ -626,7 +655,7 @@ function App() {
         setMotionBusy(true)
         try {
           const response = await fetch(
-            `/api/motion/body?direction=${encodeURIComponent(direction)}&lease_id=${encodeURIComponent(manualLeaseId)}`,
+            `/api/motion/body?direction=${encodeURIComponent(direction)}&lease_id=${encodeURIComponent(manualLeaseId)}&speed=${encodeURIComponent(movementSpeed)}`,
             { method: 'POST', cache: 'no-store' },
           )
 
@@ -677,7 +706,7 @@ function App() {
       clearTimeout(timeout)
       window.removeEventListener('brownie-demo-action', handleAction)
     }
-  }, [controlMode, manualLeaseId])
+  }, [controlMode, manualLeaseId, movementSpeed])
 
   useEffect(() => {
     let cancelled = false
@@ -993,7 +1022,12 @@ function App() {
     ),
     Camera: <CameraScreen {...cameraProps} />,
     Actions: <ActionsScreen />,
-    Tune: <TuneScreen />,
+    Tune: (
+      <TuneScreen
+        movementSpeed={movementSpeed}
+        onMovementSpeedChange={setMovementSpeed}
+      />
+    ),
     Settings: <SettingsScreen />,
   }
 
