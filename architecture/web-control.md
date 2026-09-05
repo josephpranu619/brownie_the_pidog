@@ -1,5 +1,7 @@
 # Brownie Web Control Architecture
 
+> **Current implementation snapshot:** see [`architecture/web-control-engineering-status.md`](./web-control-engineering-status.md) for the validated 2026-09-05 engineering state, including telemetry, camera, manual lease, posture/body motion, Voice/recordings, audio arbitration, LED, and Tailscale HTTPS. This document remains the longer-form architecture/design rationale.
+
 This document is the living architecture record for Brownie's custom web/PWA control interface.
 
 The goal is a free, locally hosted, fully customizable control app that works from a phone, tablet, or desktop browser without making the Raspberry Pi 4 spend significant resources rendering the UI.
