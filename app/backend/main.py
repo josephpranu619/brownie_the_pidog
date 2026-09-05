@@ -1,4 +1,5 @@
 import json
+import shutil
 import socket
 import subprocess
 import threading
@@ -13,6 +14,9 @@ app = FastAPI(title="Brownie Web API", version="0.1.0")
 CPU_TEMP_PATH = Path("/sys/class/thermal/thermal_zone0/temp")
 CPU_STAT_PATH = Path("/proc/stat")
 BODY_SOCKET_PATH = "/tmp/brownie-body.sock"
+MIC_RECORDING_PATH = Path("/tmp/brownie-web-mic.wav")
+MIC_RECORD_SECONDS = 5
+BARK_SOUND_PATH = Path.home() / "pidog" / "sounds" / "single_bark_1.mp3"
 CAMERA_COMMAND = [
     "rpicam-vid",
     "-n",
@@ -34,6 +38,10 @@ _cpu_sample_lock = threading.Lock()
 _previous_cpu_sample = None
 _camera_process_lock = threading.RLock()
 _camera_process = None
+_music_player_lock = threading.Lock()
+_music_player = None
+_mic_replay_lock = threading.RLock()
+_mic_replay_process = None
 
 
 def read_cpu_temp_c():
@@ -236,6 +244,124 @@ def camera_mjpeg_stream(process):
         stop_camera_process(expected_process=process)
 
 
+def play_bark_sound():
+    global _music_player
+
+    if not BARK_SOUND_PATH.exists():
+        raise HTTPException(status_code=503, detail="Brownie bark sound file not found")
+
+    try:
+        from robot_hat import Music
+
+        with _music_player_lock:
+            if _music_player is None:
+                _music_player = Music()
+            _music_player.sound_play_threading(str(BARK_SOUND_PATH), volume=80)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Brownie speaker unavailable: {exc}") from exc
+
+
+def record_microphone_clip():
+    try:
+        MIC_RECORDING_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    if shutil.which("parecord"):
+        command = [
+            "timeout",
+            "--signal=INT",
+            f"{MIC_RECORD_SECONDS}s",
+            "parecord",
+            "--device=brownie_mic_boosted",
+            "--file-format=wav",
+            "--format=s16le",
+            "--rate=48000",
+            "--channels=2",
+            str(MIC_RECORDING_PATH),
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=MIC_RECORD_SECONDS + 3,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=503, detail="Microphone recording did not finish") from exc
+
+        if result.returncode not in {0, 124, 130}:
+            detail = result.stderr.strip() or "parecord failed"
+            raise HTTPException(status_code=503, detail=f"Microphone recording failed: {detail}")
+
+    elif shutil.which("arecord"):
+        command = [
+            "arecord",
+            "-D",
+            "pulse",
+            "-f",
+            "S16_LE",
+            "-r",
+            "48000",
+            "-c",
+            "2",
+            "-d",
+            str(MIC_RECORD_SECONDS),
+            str(MIC_RECORDING_PATH),
+        ]
+        result = subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=MIC_RECORD_SECONDS + 3,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or "arecord failed"
+            raise HTTPException(status_code=503, detail=f"Microphone recording failed: {detail}")
+
+    else:
+        raise HTTPException(status_code=503, detail="No microphone recording utility is installed")
+
+    try:
+        size = MIC_RECORDING_PATH.stat().st_size
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="Microphone recording file was not created") from exc
+
+    if size <= 44:
+        raise HTTPException(status_code=503, detail="Microphone recording was empty")
+
+    return size
+
+
+def start_microphone_replay():
+    global _mic_replay_process
+
+    if not MIC_RECORDING_PATH.exists() or MIC_RECORDING_PATH.stat().st_size <= 44:
+        raise HTTPException(status_code=409, detail="Record a microphone clip before replaying")
+
+    if shutil.which("paplay"):
+        command = ["paplay", str(MIC_RECORDING_PATH)]
+    elif shutil.which("aplay"):
+        command = ["aplay", "-D", "pulse", str(MIC_RECORDING_PATH)]
+    else:
+        raise HTTPException(status_code=503, detail="No audio playback utility is installed")
+
+    with _mic_replay_lock:
+        previous = _mic_replay_process
+        if previous is not None and previous.poll() is None:
+            previous.terminate()
+
+        _mic_replay_process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
 @app.get("/api/system")
 def get_system():
     return {
@@ -388,6 +514,68 @@ def get_distance():
 
     return {
         "distance_cm": body.get("distance_cm"),
+    }
+
+
+@app.post("/api/accessories/sound/bark")
+def bark_sound():
+    play_bark_sound()
+    return {"ok": True, "message": "Bark played"}
+
+
+@app.get("/api/accessories/mic/status")
+def microphone_status():
+    available = MIC_RECORDING_PATH.exists() and MIC_RECORDING_PATH.stat().st_size > 44
+    return {
+        "recording_available": available,
+        "temporary": True,
+        "record_seconds": MIC_RECORD_SECONDS,
+        "bytes": MIC_RECORDING_PATH.stat().st_size if available else 0,
+    }
+
+
+@app.post("/api/accessories/mic/record")
+def microphone_record():
+    size = record_microphone_clip()
+    return {
+        "ok": True,
+        "recording_available": True,
+        "temporary": True,
+        "record_seconds": MIC_RECORD_SECONDS,
+        "bytes": size,
+        "message": f"Recorded {MIC_RECORD_SECONDS} second microphone clip",
+    }
+
+
+@app.post("/api/accessories/mic/replay")
+def microphone_replay():
+    start_microphone_replay()
+    return {"ok": True, "message": "Microphone replay started"}
+
+
+@app.post("/api/accessories/led/loading")
+def led_loading():
+    body = require_body_response(
+        "led loading",
+        conflict_message="Initialize Brownie's body hardware before using the LED pattern",
+        timeout=2.0,
+    )
+    return {
+        "led_mode": body.get("led_mode", "loading"),
+        "message": body.get("message", "LED loading pattern enabled"),
+    }
+
+
+@app.post("/api/accessories/led/off")
+def led_off():
+    body = require_body_response(
+        "led off",
+        conflict_message="Initialize Brownie's body hardware before using LED control",
+        timeout=2.0,
+    )
+    return {
+        "led_mode": body.get("led_mode", "off"),
+        "message": body.get("message", "LEDs turned off"),
     }
 
 
