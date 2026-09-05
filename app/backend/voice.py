@@ -1,6 +1,9 @@
+import os
 import shutil
+import signal
 import subprocess
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -19,13 +22,19 @@ SAVED_DIR = RECORDINGS_ROOT / "saved"
 REPLAY_PATH = Path("/tmp/brownie-voice-replay.wav")
 RECENT_MAX_FILES = 10
 RECENT_MAX_BYTES = 100 * 1024 * 1024
-BROWNIE_RECORD_SECONDS = 5
+BROWNIE_RECORD_MAX_SECONDS = 180
 ALLOWED_SOUND_SUFFIXES = {".mp3", ".wav"}
 
 _player_lock = threading.Lock()
 _player = None
 _replay_lock = threading.RLock()
 _replay_process = None
+_record_lock = threading.RLock()
+_record_process = None
+_record_temp_path = None
+_record_final_path = None
+_record_started_monotonic = None
+_record_started_at = None
 
 
 def ensure_recording_dirs():
@@ -148,78 +157,155 @@ def play_pidog_sound(name: str, volume: int):
         _player.sound_play_threading(str(path), volume=volume)
 
 
-def record_brownie_microphone():
+def _finalize_recording_locked():
+    global _record_process, _record_temp_path, _record_final_path
+    global _record_started_monotonic, _record_started_at
+
+    temp_path = _record_temp_path
+    final_path = _record_final_path
+
+    _record_process = None
+    _record_temp_path = None
+    _record_final_path = None
+    _record_started_monotonic = None
+    _record_started_at = None
+
+    if temp_path is None or final_path is None:
+        return None
+
+    if not temp_path.exists() or temp_path.stat().st_size <= 44:
+        temp_path.unlink(missing_ok=True)
+        return None
+
     ensure_recording_dirs()
-    filename = f"brownie_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{uuid4().hex[:6]}.wav"
-    path = RECENT_DIR / filename
-
-    if shutil.which("parecord"):
-        command = [
-            "timeout",
-            "--signal=INT",
-            f"{BROWNIE_RECORD_SECONDS}s",
-            "parecord",
-            "--device=brownie_mic_boosted",
-            "--file-format=wav",
-            "--format=s16le",
-            "--rate=48000",
-            "--channels=2",
-            str(path),
-        ]
-        try:
-            result = subprocess.run(
-                command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=BROWNIE_RECORD_SECONDS + 3,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            path.unlink(missing_ok=True)
-            raise HTTPException(status_code=503, detail="Brownie microphone recording did not finish") from exc
-
-        if result.returncode not in {0, 124, 130}:
-            detail = result.stderr.strip() or "parecord failed"
-            path.unlink(missing_ok=True)
-            raise HTTPException(status_code=503, detail=f"Brownie microphone recording failed: {detail}")
-
-    elif shutil.which("arecord"):
-        command = [
-            "arecord",
-            "-D",
-            "pulse",
-            "-f",
-            "S16_LE",
-            "-r",
-            "48000",
-            "-c",
-            "2",
-            "-d",
-            str(BROWNIE_RECORD_SECONDS),
-            str(path),
-        ]
-        result = subprocess.run(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=BROWNIE_RECORD_SECONDS + 3,
-            check=False,
-        )
-        if result.returncode != 0:
-            detail = result.stderr.strip() or "arecord failed"
-            path.unlink(missing_ok=True)
-            raise HTTPException(status_code=503, detail=f"Brownie microphone recording failed: {detail}")
-    else:
-        raise HTTPException(status_code=503, detail="No microphone recording utility is installed")
-
-    if not path.exists() or path.stat().st_size <= 44:
-        path.unlink(missing_ok=True)
-        raise HTTPException(status_code=503, detail="Brownie microphone recording was empty")
-
+    shutil.move(str(temp_path), str(final_path))
     cleanup_recent()
-    return recording_info("recent", path)
+    return recording_info("recent", final_path)
+
+
+def _refresh_recording_process_locked():
+    if _record_process is not None and _record_process.poll() is not None:
+        return _finalize_recording_locked()
+    return None
+
+
+def start_brownie_recording():
+    global _record_process, _record_temp_path, _record_final_path
+    global _record_started_monotonic, _record_started_at
+
+    with _record_lock:
+        _refresh_recording_process_locked()
+        if _record_process is not None and _record_process.poll() is None:
+            raise HTTPException(status_code=409, detail="Brownie microphone is already recording")
+
+        ensure_recording_dirs()
+        token = uuid4().hex[:6]
+        filename = f"brownie_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{token}.wav"
+        temp_path = Path(f"/tmp/brownie-voice-recording-{token}.wav")
+        final_path = RECENT_DIR / filename
+        temp_path.unlink(missing_ok=True)
+
+        if shutil.which("parecord"):
+            recorder = [
+                "parecord",
+                "--device=brownie_mic_boosted",
+                "--file-format=wav",
+                "--format=s16le",
+                "--rate=48000",
+                "--channels=2",
+                str(temp_path),
+            ]
+        elif shutil.which("arecord"):
+            recorder = [
+                "arecord",
+                "-D",
+                "pulse",
+                "-f",
+                "S16_LE",
+                "-r",
+                "48000",
+                "-c",
+                "2",
+                str(temp_path),
+            ]
+        else:
+            raise HTTPException(status_code=503, detail="No microphone recording utility is installed")
+
+        _record_process = subprocess.Popen(
+            [
+                "timeout",
+                "--signal=INT",
+                "--kill-after=2s",
+                f"{BROWNIE_RECORD_MAX_SECONDS}s",
+                *recorder,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _record_temp_path = temp_path
+        _record_final_path = final_path
+        _record_started_monotonic = time.monotonic()
+        _record_started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        return {
+            "active": True,
+            "started_at": _record_started_at,
+            "max_seconds": BROWNIE_RECORD_MAX_SECONDS,
+        }
+
+
+def stop_brownie_recording():
+    with _record_lock:
+        _refresh_recording_process_locked()
+        if _record_process is None:
+            raise HTTPException(status_code=409, detail="Brownie microphone is not recording")
+
+        process = _record_process
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+
+            try:
+                process.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=1.0)
+
+        item = _finalize_recording_locked()
+        if item is None:
+            raise HTTPException(status_code=503, detail="Brownie microphone recording was empty")
+        return item
+
+
+def recording_status():
+    with _record_lock:
+        completed = _refresh_recording_process_locked()
+        if _record_process is None:
+            return {
+                "active": False,
+                "elapsed_seconds": 0,
+                "max_seconds": BROWNIE_RECORD_MAX_SECONDS,
+                "completed_recording": completed,
+            }
+
+        elapsed = 0
+        if _record_started_monotonic is not None:
+            elapsed = min(
+                BROWNIE_RECORD_MAX_SECONDS,
+                max(0, int(time.monotonic() - _record_started_monotonic)),
+            )
+        return {
+            "active": True,
+            "elapsed_seconds": elapsed,
+            "max_seconds": BROWNIE_RECORD_MAX_SECONDS,
+            "started_at": _record_started_at,
+        }
 
 
 def start_recording_playback(path: Path, volume: int):
@@ -241,6 +327,7 @@ def start_recording_playback(path: Path, volume: int):
             except subprocess.TimeoutExpired:
                 previous.kill()
 
+        REPLAY_PATH.unlink(missing_ok=True)
         result = subprocess.run(
             [
                 "sox",
@@ -250,6 +337,9 @@ def start_recording_playback(path: Path, volume: int):
                 str(REPLAY_PATH),
                 "remix",
                 "1",
+                "gain",
+                "-n",
+                "-3",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -261,11 +351,18 @@ def start_recording_playback(path: Path, volume: int):
             detail = result.stderr.strip() or "sox failed"
             raise HTTPException(status_code=503, detail=f"Could not prepare recording playback: {detail}")
 
-        _replay_process = subprocess.Popen(
+        process = subprocess.Popen(
             ["aplay", "-D", "plughw:1,0", str(REPLAY_PATH)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+        time.sleep(0.15)
+        if process.poll() not in {None, 0}:
+            detail = process.stderr.read().strip() if process.stderr is not None else "aplay failed"
+            raise HTTPException(status_code=503, detail=f"Brownie speaker playback failed: {detail or 'aplay failed'}")
+
+        _replay_process = process
 
 
 @router.get("/sounds")
@@ -309,10 +406,21 @@ def get_recordings():
     }
 
 
-@router.post("/recordings/record-brownie")
-def record_from_brownie():
-    item = record_brownie_microphone()
-    return {"ok": True, "recording": item, "message": "Brownie microphone recording saved to Recent"}
+@router.get("/recordings/record-status")
+def get_recording_status():
+    return recording_status()
+
+
+@router.post("/recordings/record-brownie/start")
+def start_recording_from_brownie():
+    state = start_brownie_recording()
+    return {"ok": True, **state, "message": "Brownie microphone recording started"}
+
+
+@router.post("/recordings/record-brownie/stop")
+def stop_recording_from_brownie():
+    item = stop_brownie_recording()
+    return {"ok": True, "recording": item, "message": "Brownie microphone recording stopped"}
 
 
 @router.post("/recordings/play")
