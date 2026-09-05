@@ -218,12 +218,12 @@ function ControlScreen({
           <section className="card panel">
             <div className="section-title">
               <strong>Posture</strong>
-              <span>{manualLeaseHeld ? 'STAND / SIT LIVE' : 'LOCKED IN AUTO'}</span>
+              <span>{manualLeaseHeld ? 'STAND / SIT / LIE LIVE' : 'LOCKED IN AUTO'}</span>
             </div>
             <div className="control-grid">
               <ActionButton disabled={!manualLeaseHeld || motionBusy} className="action primary" action="Stand">Stand</ActionButton>
               <ActionButton disabled={!manualLeaseHeld || motionBusy} className="action" action="Sit">Sit</ActionButton>
-              <ActionButton disabled className="action" action="Lie down">Lie</ActionButton>
+              <ActionButton disabled={!manualLeaseHeld || motionBusy} className="action" action="Lie">Lie</ActionButton>
               <ActionButton className="action danger" action="Emergency stop">STOP</ActionButton>
             </div>
           </section>
@@ -561,7 +561,7 @@ function App() {
     const handleAction = async (event) => {
       const action = event.detail
 
-      if (action === 'Stand' || action === 'Sit') {
+      if (action === 'Stand' || action === 'Sit' || action === 'Lie') {
         if (!manualLeaseId || controlMode !== 'manual') {
           setToast(`${action} requires Manual Control`)
           clearTimeout(timeout)
