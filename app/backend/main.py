@@ -9,7 +9,10 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
+from voice import router as voice_router
+
 app = FastAPI(title="Brownie Web API", version="0.1.0")
+app.include_router(voice_router)
 
 CPU_TEMP_PATH = Path("/sys/class/thermal/thermal_zone0/temp")
 CPU_STAT_PATH = Path("/proc/stat")
