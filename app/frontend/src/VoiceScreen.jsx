@@ -6,6 +6,13 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function formatDuration(seconds) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0))
+  const minutes = Math.floor(safe / 60)
+  const remainder = safe % 60
+  return `${minutes}:${String(remainder).padStart(2, '0')}`
+}
+
 function RecordingRow({ item, busy, onPreview, onPlay, onKeep, onDelete }) {
   const sourceIcon = item.source === 'device' ? '📱' : item.source === 'brownie' ? '🐕' : '🎤'
   const sourceLabel = item.source === 'device'
@@ -54,6 +61,9 @@ function VoiceScreen({ onToast }) {
   const [volume, setVolume] = useState(80)
   const [micSource, setMicSource] = useState('brownie')
   const [busy, setBusy] = useState('')
+  const [recordingActive, setRecordingActive] = useState(false)
+  const [recordingElapsed, setRecordingElapsed] = useState(0)
+  const [recordingMaxSeconds, setRecordingMaxSeconds] = useState(180)
   const localAudioRef = useRef(null)
 
   const recent = useMemo(() => recordings.filter((item) => !item.saved), [recordings])
@@ -92,15 +102,64 @@ function VoiceScreen({ onToast }) {
     }
   }
 
+  const fetchRecordingStatus = async () => {
+    try {
+      const response = await fetch('/api/voice/recordings/record-status', { cache: 'no-store' })
+      if (!response.ok) return null
+      return await response.json()
+    } catch {
+      return null
+    }
+  }
+
   useEffect(() => {
-    refresh()
+    let cancelled = false
+
+    const initialize = async () => {
+      await refresh()
+      const status = await fetchRecordingStatus()
+      if (!cancelled && status) {
+        setRecordingActive(status.active === true)
+        setRecordingElapsed(Number(status.elapsed_seconds) || 0)
+        setRecordingMaxSeconds(Number(status.max_seconds) || 180)
+      }
+    }
+
+    initialize()
     return () => {
+      cancelled = true
       if (localAudioRef.current) {
         localAudioRef.current.pause()
         localAudioRef.current = null
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!recordingActive) return undefined
+
+    let cancelled = false
+
+    const pollStatus = async () => {
+      const status = await fetchRecordingStatus()
+      if (cancelled || !status) return
+
+      setRecordingElapsed(Number(status.elapsed_seconds) || 0)
+      setRecordingMaxSeconds(Number(status.max_seconds) || 180)
+
+      if (status.active !== true) {
+        setRecordingActive(false)
+        await refresh()
+        if (!cancelled) onToast('Recording saved to Recent')
+      }
+    }
+
+    const interval = window.setInterval(pollStatus, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [recordingActive])
 
   const playSpeakerSelection = async () => {
     setBusy('play')
@@ -158,26 +217,55 @@ function VoiceScreen({ onToast }) {
     await playUrlOnThisDevice(selectedRecording.preview_url)
   }
 
-  const recordBrownie = async () => {
+  const startBrownieRecording = async () => {
+    setBusy('record')
+    try {
+      const response = await fetch('/api/voice/recordings/record-brownie/start', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error(`Record ${response.status}`)
+      const data = await response.json()
+      setRecordingActive(true)
+      setRecordingElapsed(0)
+      setRecordingMaxSeconds(Number(data.max_seconds) || 180)
+      onToast('Brownie microphone recording started')
+    } catch {
+      onToast('Brownie microphone recording failed to start')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const stopBrownieRecording = async () => {
+    setBusy('record')
+    try {
+      const response = await fetch('/api/voice/recordings/record-brownie/stop', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error(`Stop ${response.status}`)
+      setRecordingActive(false)
+      setRecordingElapsed(0)
+      await refresh()
+      onToast('Recording saved to Recent')
+    } catch {
+      onToast('Could not stop Brownie microphone recording')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const toggleRecording = async () => {
     if (micSource === 'device') {
       onToast(deviceMicAvailable ? 'This device microphone recording comes next' : 'This device microphone requires HTTPS')
       return
     }
 
-    setBusy('record')
-    onToast('Recording from Brownie microphone for 5 seconds…')
-    try {
-      const response = await fetch('/api/voice/recordings/record-brownie', {
-        method: 'POST',
-        cache: 'no-store',
-      })
-      if (!response.ok) throw new Error(`Record ${response.status}`)
-      await refresh()
-      onToast('Brownie microphone recording added to Recent')
-    } catch {
-      onToast('Brownie microphone recording failed')
-    } finally {
-      setBusy('')
+    if (recordingActive) {
+      await stopBrownieRecording()
+    } else {
+      await startBrownieRecording()
     }
   }
 
@@ -326,13 +414,17 @@ function VoiceScreen({ onToast }) {
       </section>
 
       <section className="card panel">
-        <div className="section-title"><strong>Microphone</strong><span>RECORDING SOURCE</span></div>
+        <div className="section-title">
+          <strong>Microphone</strong>
+          <span>{recordingActive ? `${formatDuration(recordingElapsed)} / ${formatDuration(recordingMaxSeconds)}` : 'RECORDING SOURCE'}</span>
+        </div>
 
         <div className="control-grid">
           <button
             type="button"
             className={`action ${micSource === 'brownie' ? 'primary' : ''}`}
             onClick={() => setMicSource('brownie')}
+            disabled={recordingActive}
           >
             🐕 Brownie microphone
           </button>
@@ -340,27 +432,27 @@ function VoiceScreen({ onToast }) {
             type="button"
             className={`action ${micSource === 'device' ? 'primary' : ''}`}
             onClick={() => setMicSource('device')}
+            disabled={recordingActive}
           >
             📱 This device microphone
           </button>
         </div>
 
-        <div style={{ marginTop: '14px', lineHeight: 1.55, color: '#9da8b6' }}>
-          {micSource === 'brownie'
-            ? 'SOURCE: Brownie microphone. Secret-agent mode captures Brownie’s physical mic and saves the 5-second WAV into Recent.'
-            : deviceMicAvailable
-              ? 'SOURCE: This device microphone. Browser capture is available, but upload/record support is the next Voice step.'
-              : 'SOURCE: This device microphone. Browser microphone capture is blocked on the current HTTP connection and needs HTTPS.'}
-        </div>
-
         <button
           type="button"
-          className="action primary"
-          onClick={recordBrownie}
+          className={`action ${recordingActive ? 'danger' : 'primary'}`}
+          onClick={toggleRecording}
           disabled={busy === 'record' || micSource === 'device'}
+          title={micSource === 'device' && !deviceMicAvailable ? 'This device microphone requires HTTPS' : undefined}
           style={{ marginTop: '16px', width: '100%' }}
         >
-          {busy === 'record' ? '● Recording from Brownie…' : micSource === 'brownie' ? '● Record Brownie mic · 5s' : '● Record this device'}
+          {busy === 'record'
+            ? 'Working…'
+            : recordingActive
+              ? `■ Stop · ${formatDuration(recordingElapsed)}`
+              : micSource === 'brownie'
+                ? '● Record'
+                : '● Record on this device'}
         </button>
       </section>
 
