@@ -325,6 +325,33 @@ def handle(command):
             "message": "Brownie started moving to sit posture.",
         }
 
+    if verb == "lie":
+        if not manual_lease_owned_by(argument):
+            return {
+                "ok": False,
+                "error": "Lie requires the active manual-control lease for this client.",
+                **control_state(),
+            }
+
+        if not body_initialized():
+            initialize_body_to_pose("lie")
+            message = "Brownie body initialized directly into lie posture."
+        else:
+            DOG.body_stop()
+            DOG.do_action("lie", speed=70)
+            CURRENT_POSE = "lie"
+            message = "Brownie started moving to lie posture."
+
+        renew_manual_lease(argument)
+
+        return {
+            "ok": True,
+            "body_initialized": True,
+            "pose": "lie",
+            **control_state(),
+            "message": message,
+        }
+
     if verb == "stop":
         if body_initialized():
             DOG.body_stop()
@@ -341,10 +368,10 @@ def handle(command):
             ),
         }
 
-    if verb in {"lie", "walk"}:
+    if verb == "walk":
         return {
             "ok": False,
-            "error": f"{verb} is not enabled yet.",
+            "error": "walk is not enabled yet.",
         }
 
     return {
@@ -385,7 +412,7 @@ def main():
                     )
                     if not quiet_command:
                         safe_label = verb if verb in {
-                            "manual-acquire", "manual-release", "stand", "sit"
+                            "manual-acquire", "manual-release", "stand", "sit", "lie"
                         } else data
                         print(f"COMMAND: {safe_label!r}", flush=True)
                     response = handle(data)
