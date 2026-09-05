@@ -63,7 +63,7 @@ def read_distance_cm():
     """Take one ultrasonic measurement without creating a second Pidog instance."""
     if DOG is not None:
         try:
-            value = float(DOG.ultrasonic.read_distance())
+            value = float(DOG.read_distance())
             return round(value, 1) if value > 0 else None
         except Exception:
             return None
@@ -430,6 +430,48 @@ def handle(command):
             "message": f"Brownie started one {action} gait action at speed {speed}.",
         }
 
+    if verb == "led":
+        if not body_initialized() or "rgb" not in DOG.thread_list or not hasattr(DOG, "rgb_strip"):
+            return {
+                "ok": False,
+                "error": "LED control is available after Brownie's body hardware is initialized.",
+                **control_state(),
+            }
+
+        if argument == "loading":
+            DOG.rgb_strip.set_mode(
+                "listen",
+                color="cyan",
+                bps=1.5,
+                brightness=0.45,
+            )
+            return {
+                "ok": True,
+                "led_mode": "loading",
+                **control_state(),
+                "message": "Brownie LED loading pattern enabled.",
+            }
+
+        if argument == "off":
+            DOG.rgb_strip.set_mode(
+                "breath",
+                color="black",
+                bps=1,
+                brightness=0,
+            )
+            return {
+                "ok": True,
+                "led_mode": "off",
+                **control_state(),
+                "message": "Brownie LEDs turned off.",
+            }
+
+        return {
+            "ok": False,
+            "error": f"Unsupported LED mode: {argument}",
+            **control_state(),
+        }
+
     if verb == "stop":
         if body_initialized():
             DOG.body_stop()
@@ -484,7 +526,7 @@ def main():
                     )
                     if not quiet_command:
                         safe_label = verb if verb in {
-                            "manual-acquire", "manual-release", "stand", "sit", "lie", "move"
+                            "manual-acquire", "manual-release", "stand", "sit", "lie", "move", "led"
                         } else data
                         print(f"COMMAND: {safe_label!r}", flush=True)
                     response = handle(data)
