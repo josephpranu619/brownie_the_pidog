@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
+import VoiceScreen from './VoiceScreen'
 
 const quickActions = [
   ['😊', 'Happy', 'Tail + head gesture'],
@@ -11,6 +12,7 @@ const quickActions = [
 const navItems = [
   ['⌂', 'Control'],
   ['◉', 'Camera'],
+  ['🎙', 'Voice'],
   ['✦', 'Actions'],
   ['⌁', 'Tune'],
   ['⚙', 'Settings'],
@@ -126,13 +128,8 @@ function ControlScreen({
   manualHeldElsewhere,
   onToggleManual,
   motionBusy,
-  micBusy,
-  micRecordingAvailable,
   ledLoading,
   accessoryBusy,
-  onBark,
-  onRecordMic,
-  onReplayMic,
   onToggleLed,
 }) {
   const poseLabel = pose
@@ -285,47 +282,11 @@ function ControlScreen({
       </section>
 
       <section className="card bottom-sheet">
-        <div className="section-title"><strong>Hardware I/O</strong><span>SOUND · MIC · LED</span></div>
-        <div className="quick-row" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="section-title"><strong>Robot lights</strong><span>QUICK LED CONTROL</span></div>
+        <div className="quick-row" style={{ gridTemplateColumns: '1fr' }}>
           <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
-            <b>🔊 Sound</b>
-            <span>Play Brownie's single bark through the Robot HAT speaker.</span>
-            <button
-              type="button"
-              className="action primary"
-              onClick={onBark}
-              disabled={micBusy || accessoryBusy === 'bark'}
-            >
-              {accessoryBusy === 'bark' ? 'Barking…' : 'Bark'}
-            </button>
-          </div>
-
-          <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
-            <b>🎤 Microphone</b>
-            <span>Temporary 5s clip. Each recording replaces the previous one.</span>
-            <div className="control-grid">
-              <button
-                type="button"
-                className="action primary"
-                onClick={onRecordMic}
-                disabled={micBusy}
-              >
-                {micBusy ? 'Recording…' : 'Record 5s'}
-              </button>
-              <button
-                type="button"
-                className="action"
-                onClick={onReplayMic}
-                disabled={micBusy || !micRecordingAvailable}
-              >
-                Replay
-              </button>
-            </div>
-          </div>
-
-          <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
-            <b>💡 LED</b>
-            <span>Cyan sweep across Brownie's RGB strip, like a loading indicator.</span>
+            <b>💡 Loading pattern</b>
+            <span>Cyan sweep across Brownie's RGB strip. Available after PiDog hardware is initialized.</span>
             <button
               type="button"
               className={`action ${ledLoading ? 'primary' : ''}`}
@@ -636,30 +597,13 @@ function App() {
   const [manualLeaseId, setManualLeaseId] = useState(null)
   const [motionBusy, setMotionBusy] = useState(false)
   const [movementSpeed, setMovementSpeed] = useState(80)
-  const [micBusy, setMicBusy] = useState(false)
-  const [micRecordingAvailable, setMicRecordingAvailable] = useState(false)
   const [ledLoading, setLedLoading] = useState(false)
   const [accessoryBusy, setAccessoryBusy] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-
-    const refreshMicStatus = async () => {
-      try {
-        const response = await fetch('/api/accessories/mic/status', { cache: 'no-store' })
-        if (!response.ok) return
-        const data = await response.json()
-        if (!cancelled) setMicRecordingAvailable(data.recording_available === true)
-      } catch {
-        // A missing temp recording simply leaves Replay disabled.
-      }
-    }
-
-    refreshMicStatus()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const showToast = (message, duration = 1800) => {
+    setToast(message)
+    window.setTimeout(() => setToast(''), duration)
+  }
 
   useEffect(() => {
     let timeout
@@ -971,7 +915,6 @@ function App() {
         }
       } catch {
         // Keep live distance enabled through transient controller/sensor misses.
-        // The next 1-second poll will retry automatically.
       }
     }
 
@@ -1002,7 +945,6 @@ function App() {
       return
     }
 
-    // Clear any stale encoder from a previous broken/disconnected stream first.
     await requestCameraStop()
     setCameraStreamKey((key) => key + 1)
     setCameraLive(true)
@@ -1011,8 +953,7 @@ function App() {
   const handleCameraError = async () => {
     setCameraLive(false)
     await requestCameraStop()
-    setToast('Camera stream unavailable')
-    window.setTimeout(() => setToast(''), 1800)
+    showToast('Camera stream unavailable')
   }
 
   const toggleManualControl = async () => {
@@ -1033,8 +974,7 @@ function App() {
     }
 
     if (controlMode === 'manual') {
-      setToast('Manual control is active on another device')
-      window.setTimeout(() => setToast(''), 1800)
+      showToast('Manual control is active on another device')
       return
     }
 
@@ -1053,59 +993,8 @@ function App() {
       setManualLeaseId(data.lease_id)
       setControlMode('manual')
     } catch {
-      setToast('Manual control unavailable or already in use')
-      window.setTimeout(() => setToast(''), 1800)
+      showToast('Manual control unavailable or already in use')
     }
-  }
-
-  const bark = async () => {
-    setAccessoryBusy('bark')
-    try {
-      const response = await fetch('/api/accessories/sound/bark', {
-        method: 'POST',
-        cache: 'no-store',
-      })
-      if (!response.ok) throw new Error(`Bark ${response.status}`)
-      setToast('Bark played')
-    } catch {
-      setToast('Bark unavailable')
-    } finally {
-      setAccessoryBusy('')
-      window.setTimeout(() => setToast(''), 1800)
-    }
-  }
-
-  const recordMic = async () => {
-    setMicBusy(true)
-    setToast('Recording microphone for 5 seconds…')
-    try {
-      const response = await fetch('/api/accessories/mic/record', {
-        method: 'POST',
-        cache: 'no-store',
-      })
-      if (!response.ok) throw new Error(`Record ${response.status}`)
-      setMicRecordingAvailable(true)
-      setToast('Microphone clip recorded')
-    } catch {
-      setToast('Microphone recording failed')
-    } finally {
-      setMicBusy(false)
-      window.setTimeout(() => setToast(''), 1800)
-    }
-  }
-
-  const replayMic = async () => {
-    try {
-      const response = await fetch('/api/accessories/mic/replay', {
-        method: 'POST',
-        cache: 'no-store',
-      })
-      if (!response.ok) throw new Error(`Replay ${response.status}`)
-      setToast('Microphone replay started')
-    } catch {
-      setToast('Microphone replay failed')
-    }
-    window.setTimeout(() => setToast(''), 1800)
   }
 
   const toggleLed = async () => {
@@ -1118,12 +1007,11 @@ function App() {
       })
       if (!response.ok) throw new Error(`LED ${response.status}`)
       setLedLoading(nextMode === 'loading')
-      setToast(nextMode === 'loading' ? 'LED loading pattern on' : 'LEDs off')
+      showToast(nextMode === 'loading' ? 'LED loading pattern on' : 'LEDs off')
     } catch {
-      setToast('LED control requires initialized Brownie hardware')
+      showToast('LED control requires initialized Brownie hardware')
     } finally {
       setAccessoryBusy('')
-      window.setTimeout(() => setToast(''), 1800)
     }
   }
 
@@ -1161,18 +1049,14 @@ function App() {
         manualHeldElsewhere={manualHeldElsewhere}
         onToggleManual={toggleManualControl}
         motionBusy={motionBusy}
-        micBusy={micBusy}
-        micRecordingAvailable={micRecordingAvailable}
         ledLoading={ledLoading}
         accessoryBusy={accessoryBusy}
-        onBark={bark}
-        onRecordMic={recordMic}
-        onReplayMic={replayMic}
         onToggleLed={toggleLed}
         {...cameraProps}
       />
     ),
     Camera: <CameraScreen {...cameraProps} />,
+    Voice: <VoiceScreen onToast={showToast} />,
     Actions: <ActionsScreen />,
     Tune: (
       <TuneScreen
@@ -1207,7 +1091,7 @@ function App() {
       <nav
         className="bottom-nav"
         aria-label="Brownie app sections"
-        style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}
+        style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}
       >
         {navItems.map(([icon, name]) => (
           <button
