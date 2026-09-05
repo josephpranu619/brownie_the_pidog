@@ -350,18 +350,22 @@ def posture_lie(lease_id: str):
 
 
 @app.post("/api/motion/body")
-def move_body(direction: str, lease_id: str):
+def move_body(direction: str, lease_id: str, speed: int = 80):
     if direction not in {"up", "down", "left", "right"}:
         raise HTTPException(status_code=400, detail="Unsupported body direction")
 
+    if not 30 <= speed <= 100:
+        raise HTTPException(status_code=400, detail="Movement speed must be between 30 and 100")
+
     body = require_body_response(
-        f"move {lease_id} {direction}",
+        f"move {lease_id} {direction} {speed}",
         timeout=2.0,
     )
 
     return {
         "pose": body.get("pose", "stand"),
         "direction": body.get("direction", direction),
+        "speed": body.get("speed", speed),
         "message": body.get("message", "Body movement requested"),
     }
 
