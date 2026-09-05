@@ -336,6 +336,19 @@ def posture_sit(lease_id: str):
     }
 
 
+@app.post("/api/posture/lie")
+def posture_lie(lease_id: str):
+    body = require_body_response(
+        f"lie {lease_id}",
+        conflict_message="Lie requires this device to own Manual Control",
+        timeout=15.0,
+    )
+    return {
+        "pose": body.get("pose", "lie"),
+        "message": body.get("message", "Lie requested"),
+    }
+
+
 @app.post("/api/motion/stop")
 def stop_motion():
     body = require_body_response("stop", timeout=2.0)
