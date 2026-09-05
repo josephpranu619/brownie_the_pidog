@@ -126,6 +126,14 @@ function ControlScreen({
   manualHeldElsewhere,
   onToggleManual,
   motionBusy,
+  micBusy,
+  micRecordingAvailable,
+  ledLoading,
+  accessoryBusy,
+  onBark,
+  onRecordMic,
+  onReplayMic,
+  onToggleLed,
 }) {
   const poseLabel = pose
     ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
@@ -277,14 +285,56 @@ function ControlScreen({
       </section>
 
       <section className="card bottom-sheet">
-        <div className="section-title"><strong>Brownie actions</strong><span>CUSTOMIZABLE</span></div>
-        <div className="quick-row">
-          {quickActions.map(([icon, name, description]) => (
-            <ActionButton className="quick" action={name} key={name}>
-              <b>{icon} {name}</b>
-              <span>{description}</span>
-            </ActionButton>
-          ))}
+        <div className="section-title"><strong>Hardware I/O</strong><span>SOUND · MIC · LED</span></div>
+        <div className="quick-row" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
+            <b>🔊 Sound</b>
+            <span>Play Brownie's single bark through the Robot HAT speaker.</span>
+            <button
+              type="button"
+              className="action primary"
+              onClick={onBark}
+              disabled={micBusy || accessoryBusy === 'bark'}
+            >
+              {accessoryBusy === 'bark' ? 'Barking…' : 'Bark'}
+            </button>
+          </div>
+
+          <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
+            <b>🎤 Microphone</b>
+            <span>Temporary 5s clip. Each recording replaces the previous one.</span>
+            <div className="control-grid">
+              <button
+                type="button"
+                className="action primary"
+                onClick={onRecordMic}
+                disabled={micBusy}
+              >
+                {micBusy ? 'Recording…' : 'Record 5s'}
+              </button>
+              <button
+                type="button"
+                className="action"
+                onClick={onReplayMic}
+                disabled={micBusy || !micRecordingAvailable}
+              >
+                Replay
+              </button>
+            </div>
+          </div>
+
+          <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
+            <b>💡 LED</b>
+            <span>Cyan sweep across Brownie's RGB strip, like a loading indicator.</span>
+            <button
+              type="button"
+              className={`action ${ledLoading ? 'primary' : ''}`}
+              onClick={onToggleLed}
+              disabled={accessoryBusy === 'led'}
+            >
+              {accessoryBusy === 'led' ? 'Changing…' : ledLoading ? 'Loading · ON' : 'Loading pattern'}
+            </button>
+          </div>
         </div>
       </section>
     </>
@@ -586,6 +636,30 @@ function App() {
   const [manualLeaseId, setManualLeaseId] = useState(null)
   const [motionBusy, setMotionBusy] = useState(false)
   const [movementSpeed, setMovementSpeed] = useState(80)
+  const [micBusy, setMicBusy] = useState(false)
+  const [micRecordingAvailable, setMicRecordingAvailable] = useState(false)
+  const [ledLoading, setLedLoading] = useState(false)
+  const [accessoryBusy, setAccessoryBusy] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    const refreshMicStatus = async () => {
+      try {
+        const response = await fetch('/api/accessories/mic/status', { cache: 'no-store' })
+        if (!response.ok) return
+        const data = await response.json()
+        if (!cancelled) setMicRecordingAvailable(data.recording_available === true)
+      } catch {
+        // A missing temp recording simply leaves Replay disabled.
+      }
+    }
+
+    refreshMicStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let timeout
@@ -896,7 +970,8 @@ function App() {
           setDistanceCm(distance)
         }
       } catch {
-        if (!cancelled) setDistanceLive(false)
+        // Keep live distance enabled through transient controller/sensor misses.
+        // The next 1-second poll will retry automatically.
       }
     }
 
@@ -983,6 +1058,75 @@ function App() {
     }
   }
 
+  const bark = async () => {
+    setAccessoryBusy('bark')
+    try {
+      const response = await fetch('/api/accessories/sound/bark', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error(`Bark ${response.status}`)
+      setToast('Bark played')
+    } catch {
+      setToast('Bark unavailable')
+    } finally {
+      setAccessoryBusy('')
+      window.setTimeout(() => setToast(''), 1800)
+    }
+  }
+
+  const recordMic = async () => {
+    setMicBusy(true)
+    setToast('Recording microphone for 5 seconds…')
+    try {
+      const response = await fetch('/api/accessories/mic/record', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error(`Record ${response.status}`)
+      setMicRecordingAvailable(true)
+      setToast('Microphone clip recorded')
+    } catch {
+      setToast('Microphone recording failed')
+    } finally {
+      setMicBusy(false)
+      window.setTimeout(() => setToast(''), 1800)
+    }
+  }
+
+  const replayMic = async () => {
+    try {
+      const response = await fetch('/api/accessories/mic/replay', {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error(`Replay ${response.status}`)
+      setToast('Microphone replay started')
+    } catch {
+      setToast('Microphone replay failed')
+    }
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const toggleLed = async () => {
+    setAccessoryBusy('led')
+    const nextMode = ledLoading ? 'off' : 'loading'
+    try {
+      const response = await fetch(`/api/accessories/led/${nextMode}`, {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error(`LED ${response.status}`)
+      setLedLoading(nextMode === 'loading')
+      setToast(nextMode === 'loading' ? 'LED loading pattern on' : 'LEDs off')
+    } catch {
+      setToast('LED control requires initialized Brownie hardware')
+    } finally {
+      setAccessoryBusy('')
+      window.setTimeout(() => setToast(''), 1800)
+    }
+  }
+
   const isOnline = systemHealth?.online === true
   const connectionLabel = systemHealth == null ? 'Connecting' : isOnline ? 'Online' : 'Offline'
   const dotStyle = systemHealth == null
@@ -1017,6 +1161,14 @@ function App() {
         manualHeldElsewhere={manualHeldElsewhere}
         onToggleManual={toggleManualControl}
         motionBusy={motionBusy}
+        micBusy={micBusy}
+        micRecordingAvailable={micRecordingAvailable}
+        ledLoading={ledLoading}
+        accessoryBusy={accessoryBusy}
+        onBark={bark}
+        onRecordMic={recordMic}
+        onReplayMic={replayMic}
+        onToggleLed={toggleLed}
         {...cameraProps}
       />
     ),
