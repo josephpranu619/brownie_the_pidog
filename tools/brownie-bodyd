@@ -352,6 +352,60 @@ def handle(command):
             "message": message,
         }
 
+    if verb == "move":
+        lease_id, _, direction = argument.partition(" ")
+        lease_id = lease_id.strip()
+        direction = direction.strip()
+
+        if not manual_lease_owned_by(lease_id):
+            return {
+                "ok": False,
+                "error": "Body movement requires the active manual-control lease for this client.",
+                **control_state(),
+            }
+
+        if not body_initialized() or CURRENT_POSE != "stand":
+            return {
+                "ok": False,
+                "error": "Brownie must be standing before body movement is enabled.",
+                **control_state(),
+            }
+
+        if not DOG.is_legs_done():
+            return {
+                "ok": False,
+                "error": "Brownie's legs are still completing the previous motion.",
+                **control_state(),
+            }
+
+        actions = {
+            "up": "forward",
+            "down": "backward",
+            "left": "turn_left",
+            "right": "turn_right",
+        }
+        action = actions.get(direction)
+
+        if action is None:
+            return {
+                "ok": False,
+                "error": f"Unsupported body direction: {direction}",
+                **control_state(),
+            }
+
+        DOG.body_stop()
+        DOG.do_action(action, speed=80)
+        renew_manual_lease(lease_id)
+
+        return {
+            "ok": True,
+            "body_initialized": True,
+            "pose": "stand",
+            "direction": direction,
+            **control_state(),
+            "message": f"Brownie started one {action} gait action.",
+        }
+
     if verb == "stop":
         if body_initialized():
             DOG.body_stop()
@@ -366,12 +420,6 @@ def handle(command):
                 if body_initialized()
                 else "Brownie body is passive; no body motion to stop."
             ),
-        }
-
-    if verb == "walk":
-        return {
-            "ok": False,
-            "error": "walk is not enabled yet.",
         }
 
     return {
@@ -412,7 +460,7 @@ def main():
                     )
                     if not quiet_command:
                         safe_label = verb if verb in {
-                            "manual-acquire", "manual-release", "stand", "sit", "lie"
+                            "manual-acquire", "manual-release", "stand", "sit", "lie", "move"
                         } else data
                         print(f"COMMAND: {safe_label!r}", flush=True)
                     response = handle(data)
