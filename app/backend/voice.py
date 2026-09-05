@@ -53,12 +53,21 @@ def cleanup_recent():
 
 def sound_path(name: str):
     if not name or Path(name).name != name:
-        raise HTTPException(status_code=400, detail="Invalid PiDog sound name")
+        raise HTTPException(status_code=400, detail="Invalid default sound name")
 
     path = SOUND_DIR / name
     if path.suffix.lower() not in ALLOWED_SOUND_SUFFIXES or not path.is_file():
-        raise HTTPException(status_code=404, detail="PiDog sound not found")
+        raise HTTPException(status_code=404, detail="Default sound not found")
     return path
+
+
+def audio_media_type(path: Path):
+    suffix = path.suffix.lower()
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix == ".wav":
+        return "audio/wav"
+    return "application/octet-stream"
 
 
 def recording_path(recording_id: str):
@@ -272,6 +281,12 @@ def get_sounds():
     return {"sounds": sounds}
 
 
+@router.get("/sounds/file/{name}")
+def get_sound_file(name: str):
+    path = sound_path(name)
+    return FileResponse(path, media_type=audio_media_type(path))
+
+
 @router.post("/sounds/play")
 def play_sound(name: str, volume: int = 80):
     if not 0 <= volume <= 100:
@@ -334,4 +349,4 @@ def delete_recording(recording_id: str):
 @router.get("/recordings/file/{bucket}/{filename}")
 def get_recording_file(bucket: str, filename: str):
     _, path = recording_path(f"{bucket}/{filename}")
-    return FileResponse(path, filename=path.name)
+    return FileResponse(path, media_type=audio_media_type(path))
