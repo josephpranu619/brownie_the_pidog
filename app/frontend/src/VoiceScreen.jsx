@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
@@ -8,6 +8,11 @@ function formatBytes(bytes) {
 
 function RecordingRow({ item, busy, onPreview, onPlay, onKeep, onDelete }) {
   const sourceIcon = item.source === 'device' ? '📱' : item.source === 'brownie' ? '🐕' : '🎤'
+  const sourceLabel = item.source === 'device'
+    ? 'This device microphone'
+    : item.source === 'brownie'
+      ? 'Brownie microphone'
+      : 'Recording'
   const duration = item.duration_seconds == null ? '' : ` · ${item.duration_seconds.toFixed(1)}s`
 
   return (
@@ -24,14 +29,11 @@ function RecordingRow({ item, busy, onPreview, onPlay, onKeep, onDelete }) {
         <b style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {sourceIcon} {item.name}
         </b>
-        <span>
-          {item.source === 'device' ? 'This device' : item.source === 'brownie' ? 'Brownie microphone' : 'Recording'}
-          {duration} · {formatBytes(item.bytes)}
-        </span>
+        <span>{sourceLabel}{duration} · {formatBytes(item.bytes)}</span>
       </div>
 
       <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        <button type="button" className="action" onClick={() => onPreview(item)} disabled={busy}>Preview</button>
+        <button type="button" className="action" onClick={() => onPreview(item)} disabled={busy}>This device ▶</button>
         <button type="button" className="action primary" onClick={() => onPlay(item)} disabled={busy}>Brownie ▶</button>
         {!item.saved && (
           <button type="button" className="action" onClick={() => onKeep(item)} disabled={busy}>☆ Keep</button>
@@ -52,9 +54,14 @@ function VoiceScreen({ onToast }) {
   const [volume, setVolume] = useState(80)
   const [micSource, setMicSource] = useState('brownie')
   const [busy, setBusy] = useState('')
+  const localAudioRef = useRef(null)
 
   const recent = useMemo(() => recordings.filter((item) => !item.saved), [recordings])
   const saved = useMemo(() => recordings.filter((item) => item.saved), [recordings])
+  const selectedRecording = useMemo(
+    () => recordings.find((item) => item.id === selectedRecordingId) || null,
+    [recordings, selectedRecordingId],
+  )
   const deviceMicAvailable = window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia)
 
   const refresh = async () => {
@@ -87,6 +94,12 @@ function VoiceScreen({ onToast }) {
 
   useEffect(() => {
     refresh()
+    return () => {
+      if (localAudioRef.current) {
+        localAudioRef.current.pause()
+        localAudioRef.current = null
+      }
+    }
   }, [])
 
   const playSpeakerSelection = async () => {
@@ -94,7 +107,7 @@ function VoiceScreen({ onToast }) {
     try {
       let response
       if (speakerSource === 'pidog') {
-        if (!selectedSound) throw new Error('No PiDog sound selected')
+        if (!selectedSound) throw new Error('No default sound selected')
         response = await fetch(
           `/api/voice/sounds/play?name=${encodeURIComponent(selectedSound)}&volume=${volume}`,
           { method: 'POST', cache: 'no-store' },
@@ -110,20 +123,49 @@ function VoiceScreen({ onToast }) {
       if (!response.ok) throw new Error(`Play ${response.status}`)
       onToast('Playing on Brownie')
     } catch {
-      onToast('Speaker playback failed')
+      onToast('Brownie speaker playback failed')
     } finally {
       setBusy('')
     }
   }
 
+  const playUrlOnThisDevice = async (url, successMessage = 'Playing on this device') => {
+    try {
+      if (localAudioRef.current) localAudioRef.current.pause()
+      const audio = new Audio(url)
+      localAudioRef.current = audio
+      await audio.play()
+      onToast(successMessage)
+    } catch {
+      onToast('Playback unavailable on this device')
+    }
+  }
+
+  const playSpeakerSelectionOnThisDevice = async () => {
+    if (speakerSource === 'pidog') {
+      if (!selectedSound) {
+        onToast('Choose a Default Sound first')
+        return
+      }
+      await playUrlOnThisDevice(`/api/voice/sounds/file/${encodeURIComponent(selectedSound)}`)
+      return
+    }
+
+    if (!selectedRecording) {
+      onToast('Choose a recording first')
+      return
+    }
+    await playUrlOnThisDevice(selectedRecording.preview_url)
+  }
+
   const recordBrownie = async () => {
     if (micSource === 'device') {
-      onToast(deviceMicAvailable ? 'Device microphone upload comes next' : 'This device microphone requires HTTPS')
+      onToast(deviceMicAvailable ? 'This device microphone recording comes next' : 'This device microphone requires HTTPS')
       return
     }
 
     setBusy('record')
-    onToast('Recording Brownie microphone for 5 seconds…')
+    onToast('Recording from Brownie microphone for 5 seconds…')
     try {
       const response = await fetch('/api/voice/recordings/record-brownie', {
         method: 'POST',
@@ -131,7 +173,7 @@ function VoiceScreen({ onToast }) {
       })
       if (!response.ok) throw new Error(`Record ${response.status}`)
       await refresh()
-      onToast('Recording added to Recent')
+      onToast('Brownie microphone recording added to Recent')
     } catch {
       onToast('Brownie microphone recording failed')
     } finally {
@@ -140,8 +182,7 @@ function VoiceScreen({ onToast }) {
   }
 
   const previewRecording = (item) => {
-    const audio = new Audio(item.preview_url)
-    audio.play().catch(() => onToast('Preview unavailable on this device'))
+    playUrlOnThisDevice(item.preview_url, `Playing ${item.source === 'brownie' ? 'Brownie mic' : 'recording'} on this device`)
   }
 
   const playRecording = async (item) => {
@@ -212,7 +253,7 @@ function VoiceScreen({ onToast }) {
         <div>
           <span className="eyebrow">VOICE</span>
           <h1>Brownie's audio center</h1>
-          <p>Play PiDog sounds, record from Brownie, and manage recordings without cluttering Control.</p>
+          <p>Play Default Sounds, record from Brownie, and manage recordings without cluttering Control.</p>
         </div>
         <span className="sim-badge">AUDIO LIVE</span>
       </div>
@@ -224,7 +265,7 @@ function VoiceScreen({ onToast }) {
           <div>
             <span className="metric-key">Sound source</span>
             <select value={speakerSource} onChange={(event) => setSpeakerSource(event.target.value)} style={selectStyle}>
-              <option value="pidog">PiDog sounds</option>
+              <option value="pidog">Default Sounds</option>
               <option value="recordings">Recordings</option>
             </select>
           </div>
@@ -240,7 +281,7 @@ function VoiceScreen({ onToast }) {
                 {recordings.length === 0 && <option value="">No recordings yet</option>}
                 {recordings.map((item) => (
                   <option value={item.id} key={item.id}>
-                    {item.saved ? 'Saved' : 'Recent'} · {item.name}
+                    {item.saved ? 'Saved' : 'Recent'} · {item.source === 'brownie' ? 'Brownie mic' : item.source === 'device' ? 'This device' : 'Recording'} · {item.name}
                   </option>
                 ))}
               </select>
@@ -264,15 +305,24 @@ function VoiceScreen({ onToast }) {
           />
         </div>
 
-        <button
-          type="button"
-          className="action primary"
-          onClick={playSpeakerSelection}
-          disabled={busy === 'play' || (speakerSource === 'recordings' && !selectedRecordingId)}
-          style={{ marginTop: '16px', width: '100%' }}
-        >
-          {busy === 'play' ? 'Playing…' : '▶ Play on Brownie'}
-        </button>
+        <div className="control-grid" style={{ marginTop: '16px' }}>
+          <button
+            type="button"
+            className="action primary"
+            onClick={playSpeakerSelection}
+            disabled={busy === 'play' || (speakerSource === 'recordings' && !selectedRecordingId)}
+          >
+            {busy === 'play' ? 'Playing…' : '▶ Play on Brownie'}
+          </button>
+          <button
+            type="button"
+            className="action"
+            onClick={playSpeakerSelectionOnThisDevice}
+            disabled={(speakerSource === 'pidog' && !selectedSound) || (speakerSource === 'recordings' && !selectedRecordingId)}
+          >
+            ▶ Play on this device
+          </button>
+        </div>
       </section>
 
       <section className="card panel">
@@ -297,10 +347,10 @@ function VoiceScreen({ onToast }) {
 
         <div style={{ marginTop: '14px', lineHeight: 1.55, color: '#9da8b6' }}>
           {micSource === 'brownie'
-            ? 'Secret-agent mode: capture audio using Brownie’s physical microphone. First pass records a 5-second clip directly into Recent.'
+            ? 'SOURCE: Brownie microphone. Secret-agent mode captures Brownie’s physical mic and saves the 5-second WAV into Recent.'
             : deviceMicAvailable
-              ? 'Your browser can access this device microphone. Upload/record support is the next Voice step.'
-              : 'Browser microphone capture needs HTTPS. It will become available when Brownie moves to the secure Tailscale/HTTPS connection.'}
+              ? 'SOURCE: This device microphone. Browser capture is available, but upload/record support is the next Voice step.'
+              : 'SOURCE: This device microphone. Browser microphone capture is blocked on the current HTTP connection and needs HTTPS.'}
         </div>
 
         <button
@@ -310,7 +360,7 @@ function VoiceScreen({ onToast }) {
           disabled={busy === 'record' || micSource === 'device'}
           style={{ marginTop: '16px', width: '100%' }}
         >
-          {busy === 'record' ? '● Recording…' : micSource === 'brownie' ? '● Record 5s' : '● Record on this device'}
+          {busy === 'record' ? '● Recording from Brownie…' : micSource === 'brownie' ? '● Record Brownie mic · 5s' : '● Record this device'}
         </button>
       </section>
 
