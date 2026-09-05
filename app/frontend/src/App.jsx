@@ -131,6 +131,7 @@ function ControlScreen({
     ? `${pose.charAt(0).toUpperCase()}${pose.slice(1)}`
     : 'Unknown'
   const cpuGaugeValue = cpuUsage == null ? 0 : Math.max(0, Math.min(100, cpuUsage))
+  const bodyDpadEnabled = manualLeaseHeld && pose === 'stand' && !motionBusy
 
   return (
     <>
@@ -253,7 +254,9 @@ function ControlScreen({
           </button>
           <span>
             {manualLeaseHeld
-              ? 'POSTURE LIVE · D-PADS NEXT'
+              ? pose === 'stand'
+                ? 'BODY TAP MODE · HEAD NEXT'
+                : 'STAND TO DRIVE'
               : manualHeldElsewhere
                 ? 'OTHER DEVICE'
                 : controlMode === 'autonomous'
@@ -264,11 +267,11 @@ function ControlScreen({
         <div
           className="joystick-wrap"
           style={{
-            opacity: 0.42,
+            opacity: manualLeaseHeld ? 1 : 0.42,
             transition: 'opacity 0.18s ease',
           }}
         >
-          <DPad disabled label="BODY" prefix="Body " />
+          <DPad disabled={!bodyDpadEnabled} label="BODY" prefix="Body " />
           <DPad disabled label="HEAD" prefix="Head " />
         </div>
       </section>
@@ -596,6 +599,49 @@ function App() {
           setToast(`${action} requested`)
         } catch {
           setToast(`${action} request failed`)
+        } finally {
+          setMotionBusy(false)
+          clearTimeout(timeout)
+          timeout = setTimeout(() => setToast(''), 1800)
+        }
+        return
+      }
+
+      const bodyDirections = {
+        'Body up': 'up',
+        'Body down': 'down',
+        'Body left': 'left',
+        'Body right': 'right',
+      }
+
+      if (bodyDirections[action]) {
+        if (!manualLeaseId || controlMode !== 'manual') {
+          setToast('Body movement requires Manual Control')
+          clearTimeout(timeout)
+          timeout = setTimeout(() => setToast(''), 1800)
+          return
+        }
+
+        const direction = bodyDirections[action]
+        setMotionBusy(true)
+        try {
+          const response = await fetch(
+            `/api/motion/body?direction=${encodeURIComponent(direction)}&lease_id=${encodeURIComponent(manualLeaseId)}`,
+            { method: 'POST', cache: 'no-store' },
+          )
+
+          if (!response.ok) throw new Error(`Body ${response.status}`)
+
+          const data = await response.json()
+          setRobotStatus((current) => ({
+            batteryVoltage: current?.batteryVoltage ?? null,
+            batteryPercent: current?.batteryPercent ?? null,
+            pose: typeof data.pose === 'string' ? data.pose : current?.pose ?? null,
+            bodyControllerOnline: true,
+          }))
+          setToast(data.message || `Body ${direction} requested`)
+        } catch {
+          setToast('Body movement rejected · wait for Stand/motion to finish')
         } finally {
           setMotionBusy(false)
           clearTimeout(timeout)
