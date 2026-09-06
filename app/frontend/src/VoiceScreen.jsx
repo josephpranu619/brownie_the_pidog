@@ -486,15 +486,21 @@ function VoiceScreen({ onToast }) {
   }
 
   const keepRecording = async (item) => {
+    const name = window.prompt('Name this recording (optional):', '')
+    if (name === null) return
+
+    const params = new URLSearchParams({ recording_id: item.id })
+    if (name.trim()) params.set('name', name.trim())
+
     setBusy(item.id)
     try {
       const response = await fetch(
-        `/api/voice/recordings/keep?recording_id=${encodeURIComponent(item.id)}`,
+        `/api/voice/recordings/keep?${params.toString()}`,
         { method: 'POST', cache: 'no-store' },
       )
       if (!response.ok) throw new Error(`Keep ${response.status}`)
       await refresh()
-      onToast('Recording moved to Saved')
+      onToast(name.trim() ? `Saved as ${name.trim()}` : 'Recording moved to Saved')
     } catch {
       onToast('Could not keep recording')
     } finally {
