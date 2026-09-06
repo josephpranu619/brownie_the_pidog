@@ -6,7 +6,7 @@ Wants=brownie-bodyd.service brownie-mic.service
 [Service]
 Type=simple
 WorkingDirectory=/home/pranu/brownie_the_pidog
-ExecStart=/home/pranu/brownie_the_pidog/app/backend/.venv/bin/uvicorn main:app --app-dir app/backend --host 0.0.0.0 --port 8000
+ExecStart=/home/pranu/brownie_the_pidog/app/backend/.venv/bin/uvicorn main:app --app-dir app/backend --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=3
 KillMode=control-group
