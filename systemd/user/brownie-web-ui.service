@@ -7,7 +7,7 @@ Wants=brownie-web-api.service
 Type=simple
 WorkingDirectory=/home/pranu/brownie_the_pidog/app/frontend
 Environment=PATH=/home/pranu/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/pranu/.local/bin/npm run dev -- --host
+ExecStart=/home/pranu/.local/bin/npm run dev -- --host 127.0.0.1
 Restart=on-failure
 RestartSec=3
 KillMode=control-group
