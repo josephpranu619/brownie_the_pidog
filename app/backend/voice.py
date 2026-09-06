@@ -113,6 +113,22 @@ def source_for_filename(filename: str):
     return "unknown"
 
 
+def safe_saved_name(name: str | None):
+    if name is None:
+        return None
+
+    value = " ".join(name.strip().split())
+    value = value.replace("/", "-").replace("\\", "-")
+    value = "".join(
+        char for char in value
+        if char.isprintable() and char not in '<>:"|?*'
+    )
+    value = value.strip(" .")
+    if not value:
+        return None
+    return value[:60].rstrip(" .")
+
+
 def duration_seconds(path: Path):
     if not shutil.which("soxi"):
         return None
@@ -526,15 +542,22 @@ def play_recording(recording_id: str, volume: int = 80):
 
 
 @router.post("/recordings/keep")
-def keep_recording(recording_id: str):
+def keep_recording(recording_id: str, name: str | None = None):
     bucket, path = recording_path(recording_id)
     if bucket == "saved":
         return {"ok": True, "recording": recording_info("saved", path), "message": "Recording is already saved"}
 
     ensure_recording_dirs()
-    destination = SAVED_DIR / path.name
+    friendly_name = safe_saved_name(name)
+    if friendly_name:
+        source_prefix = "brownie_" if path.name.startswith("brownie_") else "device_" if path.name.startswith("device_") else "recording_"
+        destination = SAVED_DIR / f"{source_prefix}{friendly_name}{path.suffix.lower()}"
+    else:
+        destination = SAVED_DIR / path.name
+
     if destination.exists():
-        destination = SAVED_DIR / f"{path.stem}_{uuid4().hex[:6]}{path.suffix}"
+        destination = SAVED_DIR / f"{destination.stem}_{uuid4().hex[:6]}{destination.suffix}"
+
     shutil.move(str(path), str(destination))
     return {"ok": True, "recording": recording_info("saved", destination), "message": "Recording kept in Saved"}
 
