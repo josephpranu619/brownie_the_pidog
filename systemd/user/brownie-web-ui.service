@@ -1,0 +1,16 @@
+[Unit]
+Description=Brownie web control Vite UI
+After=brownie-web-api.service
+Wants=brownie-web-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pranu/brownie_the_pidog/app/frontend
+ExecStart=/usr/bin/env npm run dev -- --host
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
