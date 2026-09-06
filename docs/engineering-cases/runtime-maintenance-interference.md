@@ -96,26 +96,73 @@ System-health monitor
     -> classify known OS-maintenance processes
 
 Planned maintenance
-    -> OS/package updates happen deliberately
+    -> OS/package updates happen in a deterministic window
     -> allow update to complete cleanly
     -> reboot if required
     -> validate Brownie services afterward
 ```
 
-## Planned Timer Change
+## Validated Timer Fix — Disable Boot Catch-up
 
-The first safe change is to override both APT calendar timers with:
+Brownie now overrides both APT calendar timers with:
 
 ```ini
 [Timer]
 Persistent=false
 ```
 
-This prevents missed jobs from being immediately caught up after Brownie boots.
+Installed drop-ins:
 
-A second step should replace the broad randomized default windows with a deliberate maintenance schedule appropriate to Brownie's actual operating timezone and usage pattern.
+```text
+/etc/systemd/system/apt-daily.timer.d/brownie.conf
+/etc/systemd/system/apt-daily-upgrade.timer.d/brownie.conf
+```
 
-The exact schedule should be set only after confirming Brownie's system timezone so that the configured `OnCalendar=` window is unambiguous.
+Applied with:
+
+```bash
+sudo mkdir -p \
+  /etc/systemd/system/apt-daily.timer.d \
+  /etc/systemd/system/apt-daily-upgrade.timer.d
+
+printf '[Timer]\nPersistent=false\n' | \
+  sudo tee /etc/systemd/system/apt-daily.timer.d/brownie.conf
+
+printf '[Timer]\nPersistent=false\n' | \
+  sudo tee /etc/systemd/system/apt-daily-upgrade.timer.d/brownie.conf
+
+sudo systemctl daemon-reload
+```
+
+Effective runtime state was verified using:
+
+```bash
+systemctl show apt-daily.timer apt-daily-upgrade.timer \
+  -p Id \
+  -p Persistent \
+  -p RandomizedDelayUSec \
+  -p NextElapseUSecRealtime
+```
+
+Validated result:
+
+```text
+apt-daily.timer
+Persistent=no
+RandomizedDelayUSec=12h
+
+apt-daily-upgrade.timer
+Persistent=no
+RandomizedDelayUSec=1h
+```
+
+This removes the specific failure mode observed in this incident: a missed automatic package-maintenance timer no longer immediately catches up after Brownie boots.
+
+### Remaining maintenance risk
+
+`Persistent=false` does **not** remove the default randomized execution windows while Brownie is already running. `apt-daily.timer` still has a 12-hour random delay and `apt-daily-upgrade.timer` still has a 1-hour random delay.
+
+The next policy step is to replace these broad random windows with a fixed, predictable maintenance schedule so background package work does not start unexpectedly during normal robot use.
 
 ## Planned UI Improvement
 
@@ -135,6 +182,7 @@ Suggested threshold for investigation/UI warning:
 
 - CPU above roughly 70% for ~10 seconds;
 - then resolve and display the top CPU-consuming process;
+- classify `apt`, `dpkg`, `unattended-upgrade`, and related package work as system maintenance;
 - avoid automatic termination unless a future control is explicitly limited to known-safe workloads.
 
 ## Engineering Lessons / Interview Notes
@@ -144,8 +192,9 @@ Suggested threshold for investigation/UI warning:
 3. General-purpose OS defaults are not automatically appropriate for embedded/robotic systems.
 4. Background maintenance is a scheduling/resource-arbitration problem, not merely a CPU problem.
 5. Embedded autonomy benefits from deterministic maintenance windows and explicit runtime headroom.
-6. Good incident handling preserves evidence: process list -> service identity -> timer history -> journal correlation -> policy change.
+6. Good incident handling preserves evidence: process list -> service identity -> timer history -> journal correlation -> policy change -> verification.
 7. Observability should be available through the robot's normal control surface, not only over SSH.
+8. Verify the effective systemd property after applying a drop-in; seeing the override file alone is not the same as proving the runtime configuration changed.
 
 ## Related Audio Observation
 
@@ -156,6 +205,6 @@ During the same session, Hermes produced repeated ALSA underruns during wake/lis
 - Root cause of the unexpected CPU spike: **identified**.
 - Hard-kill approach: **rejected**.
 - Runtime maintenance policy: **defined**.
-- `Persistent=false` timer override: **planned, not yet applied**.
-- Deterministic maintenance schedule: **pending timezone confirmation**.
+- `Persistent=false` timer override: **applied and validated**.
+- Deterministic maintenance schedule: **pending**.
 - UI top-process telemetry: **pending**.
