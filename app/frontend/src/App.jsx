@@ -628,11 +628,8 @@ function App() {
           )
 
           if (!response.ok) {
-            if (response.status === 409) {
-              setManualLeaseId(null)
-              setControlMode('autonomous')
-            }
-            throw new Error(`${action} ${response.status}`)
+            const errorData = await response.json().catch(() => null)
+            throw new Error(errorData?.detail || `${action} request failed`)
           }
 
           const data = await response.json()
