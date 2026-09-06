@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+const DEVICE_RECORD_MAX_SECONDS = 180
+
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -11,6 +13,19 @@ function formatDuration(seconds) {
   const minutes = Math.floor(safe / 60)
   const remainder = safe % 60
   return `${minutes}:${String(remainder).padStart(2, '0')}`
+}
+
+function pickDeviceMimeType() {
+  if (typeof MediaRecorder === 'undefined') return ''
+
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+  ]
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || ''
 }
 
 function RecordingRow({ item, busy, onPreview, onPlay, onKeep, onDelete }) {
@@ -62,9 +77,16 @@ function VoiceScreen({ onToast }) {
   const [micSource, setMicSource] = useState('brownie')
   const [busy, setBusy] = useState('')
   const [recordingActive, setRecordingActive] = useState(false)
+  const [recordingSource, setRecordingSource] = useState(null)
   const [recordingElapsed, setRecordingElapsed] = useState(0)
-  const [recordingMaxSeconds, setRecordingMaxSeconds] = useState(180)
+  const [recordingMaxSeconds, setRecordingMaxSeconds] = useState(DEVICE_RECORD_MAX_SECONDS)
   const localAudioRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const mediaStreamRef = useRef(null)
+  const deviceChunksRef = useRef([])
+  const deviceStopTimerRef = useRef(null)
+  const deviceStartedAtRef = useRef(null)
+  const discardDeviceRecordingRef = useRef(false)
 
   const recent = useMemo(() => recordings.filter((item) => !item.saved), [recordings])
   const saved = useMemo(() => recordings.filter((item) => item.saved), [recordings])
@@ -72,7 +94,9 @@ function VoiceScreen({ onToast }) {
     () => recordings.find((item) => item.id === selectedRecordingId) || null,
     [recordings, selectedRecordingId],
   )
-  const deviceMicAvailable = window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia)
+  const deviceMicAvailable = window.isSecureContext
+    && typeof MediaRecorder !== 'undefined'
+    && Boolean(navigator.mediaDevices?.getUserMedia)
 
   const refresh = async () => {
     try {
@@ -112,16 +136,25 @@ function VoiceScreen({ onToast }) {
     }
   }
 
+  const stopDeviceTracks = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      mediaStreamRef.current = null
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
     const initialize = async () => {
       await refresh()
       const status = await fetchRecordingStatus()
-      if (!cancelled && status) {
-        setRecordingActive(status.active === true)
+      if (!cancelled && status?.active === true) {
+        setMicSource('brownie')
+        setRecordingActive(true)
+        setRecordingSource('brownie')
         setRecordingElapsed(Number(status.elapsed_seconds) || 0)
-        setRecordingMaxSeconds(Number(status.max_seconds) || 180)
+        setRecordingMaxSeconds(Number(status.max_seconds) || DEVICE_RECORD_MAX_SECONDS)
       }
     }
 
@@ -132,11 +165,28 @@ function VoiceScreen({ onToast }) {
         localAudioRef.current.pause()
         localAudioRef.current = null
       }
+      if (deviceStopTimerRef.current) {
+        window.clearTimeout(deviceStopTimerRef.current)
+        deviceStopTimerRef.current = null
+      }
+      discardDeviceRecordingRef.current = true
+      const recorder = mediaRecorderRef.current
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.ondataavailable = null
+        recorder.onstop = null
+        try {
+          recorder.stop()
+        } catch {
+          // Browser capture is best-effort during component teardown.
+        }
+      }
+      mediaRecorderRef.current = null
+      stopDeviceTracks()
     }
   }, [])
 
   useEffect(() => {
-    if (!recordingActive) return undefined
+    if (!recordingActive || recordingSource !== 'brownie') return undefined
 
     let cancelled = false
 
@@ -145,10 +195,12 @@ function VoiceScreen({ onToast }) {
       if (cancelled || !status) return
 
       setRecordingElapsed(Number(status.elapsed_seconds) || 0)
-      setRecordingMaxSeconds(Number(status.max_seconds) || 180)
+      setRecordingMaxSeconds(Number(status.max_seconds) || DEVICE_RECORD_MAX_SECONDS)
 
       if (status.active !== true) {
         setRecordingActive(false)
+        setRecordingSource(null)
+        setRecordingElapsed(0)
         await refresh()
         if (!cancelled) onToast('Recording saved to Recent')
       }
@@ -159,7 +211,21 @@ function VoiceScreen({ onToast }) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [recordingActive])
+  }, [recordingActive, recordingSource])
+
+  useEffect(() => {
+    if (!recordingActive || recordingSource !== 'device') return undefined
+
+    const updateElapsed = () => {
+      if (deviceStartedAtRef.current == null) return
+      const elapsed = Math.floor((Date.now() - deviceStartedAtRef.current) / 1000)
+      setRecordingElapsed(Math.min(DEVICE_RECORD_MAX_SECONDS, Math.max(0, elapsed)))
+    }
+
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 250)
+    return () => window.clearInterval(interval)
+  }, [recordingActive, recordingSource])
 
   const playSpeakerSelection = async () => {
     setBusy('play')
@@ -227,8 +293,9 @@ function VoiceScreen({ onToast }) {
       if (!response.ok) throw new Error(`Record ${response.status}`)
       const data = await response.json()
       setRecordingActive(true)
+      setRecordingSource('brownie')
       setRecordingElapsed(0)
-      setRecordingMaxSeconds(Number(data.max_seconds) || 180)
+      setRecordingMaxSeconds(Number(data.max_seconds) || DEVICE_RECORD_MAX_SECONDS)
       onToast('Brownie microphone recording started')
     } catch {
       onToast('Brownie microphone recording failed to start')
@@ -246,6 +313,7 @@ function VoiceScreen({ onToast }) {
       })
       if (!response.ok) throw new Error(`Stop ${response.status}`)
       setRecordingActive(false)
+      setRecordingSource(null)
       setRecordingElapsed(0)
       await refresh()
       onToast('Recording saved to Recent')
@@ -256,21 +324,149 @@ function VoiceScreen({ onToast }) {
     }
   }
 
-  const toggleRecording = async () => {
-    if (micSource === 'device') {
-      onToast(deviceMicAvailable ? 'This device microphone recording comes next' : 'This device microphone requires HTTPS')
+  const uploadDeviceRecording = async (blob) => {
+    setBusy('record')
+    try {
+      const response = await fetch('/api/voice/recordings/upload-device', {
+        method: 'POST',
+        headers: {
+          'Content-Type': blob.type || 'application/octet-stream',
+        },
+        body: blob,
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null)
+        throw new Error(errorData?.detail || `Upload ${response.status}`)
+      }
+
+      await refresh()
+      onToast('This device recording saved to Recent')
+    } catch (error) {
+      onToast(error?.message || 'This device recording upload failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const startDeviceRecording = async () => {
+    if (!deviceMicAvailable) {
+      onToast('This device microphone requires HTTPS and browser microphone support')
       return
     }
 
+    setBusy('record')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      mediaStreamRef.current = stream
+
+      const mimeType = pickDeviceMimeType()
+      const options = mimeType
+        ? { mimeType, audioBitsPerSecond: 128000 }
+        : { audioBitsPerSecond: 128000 }
+      const recorder = new MediaRecorder(stream, options)
+
+      mediaRecorderRef.current = recorder
+      deviceChunksRef.current = []
+      discardDeviceRecordingRef.current = false
+
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) deviceChunksRef.current.push(event.data)
+      }
+
+      recorder.onerror = () => {
+        onToast('This device microphone recording failed')
+      }
+
+      recorder.onstop = async () => {
+        if (deviceStopTimerRef.current) {
+          window.clearTimeout(deviceStopTimerRef.current)
+          deviceStopTimerRef.current = null
+        }
+
+        const chunks = deviceChunksRef.current
+        deviceChunksRef.current = []
+        mediaRecorderRef.current = null
+        deviceStartedAtRef.current = null
+        stopDeviceTracks()
+        setRecordingActive(false)
+        setRecordingSource(null)
+        setRecordingElapsed(0)
+
+        if (discardDeviceRecordingRef.current) return
+
+        const blobType = recorder.mimeType || chunks[0]?.type || mimeType || 'audio/webm'
+        const blob = new Blob(chunks, { type: blobType })
+        if (blob.size === 0) {
+          setBusy('')
+          onToast('This device recording was empty')
+          return
+        }
+
+        await uploadDeviceRecording(blob)
+      }
+
+      recorder.start(1000)
+      deviceStartedAtRef.current = Date.now()
+      setRecordingActive(true)
+      setRecordingSource('device')
+      setRecordingElapsed(0)
+      setRecordingMaxSeconds(DEVICE_RECORD_MAX_SECONDS)
+      setBusy('')
+      onToast('This device microphone recording started')
+
+      deviceStopTimerRef.current = window.setTimeout(() => {
+        if (recorder.state !== 'inactive') {
+          setBusy('record')
+          recorder.stop()
+        }
+      }, DEVICE_RECORD_MAX_SECONDS * 1000)
+    } catch (error) {
+      stopDeviceTracks()
+      mediaRecorderRef.current = null
+      setBusy('')
+      if (error?.name === 'NotAllowedError') {
+        onToast('Microphone permission was denied')
+      } else {
+        onToast('Could not start this device microphone')
+      }
+    }
+  }
+
+  const stopDeviceRecording = () => {
+    const recorder = mediaRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') return
+    setBusy('record')
+    recorder.stop()
+  }
+
+  const toggleRecording = async () => {
     if (recordingActive) {
-      await stopBrownieRecording()
+      if (recordingSource === 'device') {
+        stopDeviceRecording()
+      } else {
+        await stopBrownieRecording()
+      }
+      return
+    }
+
+    if (micSource === 'device') {
+      await startDeviceRecording()
     } else {
       await startBrownieRecording()
     }
   }
 
   const previewRecording = (item) => {
-    playUrlOnThisDevice(item.preview_url, `Playing ${item.source === 'brownie' ? 'Brownie mic' : 'recording'} on this device`)
+    const source = item.source === 'brownie' ? 'Brownie mic' : item.source === 'device' ? 'this device mic' : 'recording'
+    playUrlOnThisDevice(item.preview_url, `Playing ${source} on this device`)
   }
 
   const playRecording = async (item) => {
@@ -341,7 +537,7 @@ function VoiceScreen({ onToast }) {
         <div>
           <span className="eyebrow">VOICE</span>
           <h1>Brownie's audio center</h1>
-          <p>Play Default Sounds, record from Brownie, and manage recordings without cluttering Control.</p>
+          <p>Play Default Sounds, record from Brownie or this device, and manage recordings without cluttering Control.</p>
         </div>
         <span className="sim-badge">AUDIO LIVE</span>
       </div>
@@ -442,8 +638,8 @@ function VoiceScreen({ onToast }) {
           type="button"
           className={`action ${recordingActive ? 'danger' : 'primary'}`}
           onClick={toggleRecording}
-          disabled={busy === 'record' || micSource === 'device'}
-          title={micSource === 'device' && !deviceMicAvailable ? 'This device microphone requires HTTPS' : undefined}
+          disabled={busy === 'record' || (!recordingActive && micSource === 'device' && !deviceMicAvailable)}
+          title={micSource === 'device' && !deviceMicAvailable ? 'This device microphone requires HTTPS and browser microphone support' : undefined}
           style={{ marginTop: '16px', width: '100%' }}
         >
           {busy === 'record'
