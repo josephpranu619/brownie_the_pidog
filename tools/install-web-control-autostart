@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+START_NOW=false
+if [[ "${1:-}" == "--start" ]]; then
+  START_NOW=true
+elif [[ -n "${1:-}" ]]; then
+  echo "Usage: $0 [--start]" >&2
+  exit 2
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UNIT_SRC="$REPO_ROOT/systemd/user"
+UNIT_DST="$HOME/.config/systemd/user"
+
+required_units=(
+  brownie-mic.service
+  brownie-bodyd.service
+  brownie-web-api.service
+  brownie-web-ui.service
+)
+
+enabled_units=(
+  brownie-bodyd.service
+  brownie-web-api.service
+  brownie-web-ui.service
+)
+
+for unit in "${required_units[@]}"; do
+  if [[ ! -f "$UNIT_SRC/$unit" ]]; then
+    echo "Missing repo unit: $UNIT_SRC/$unit" >&2
+    exit 1
+  fi
+done
+
+if [[ ! -x "$REPO_ROOT/tools/brownie-bodyd" ]]; then
+  echo "Missing executable: $REPO_ROOT/tools/brownie-bodyd" >&2
+  exit 1
+fi
+
+if [[ ! -x "$REPO_ROOT/app/backend/.venv/bin/uvicorn" ]]; then
+  echo "FastAPI venv is not ready: $REPO_ROOT/app/backend/.venv/bin/uvicorn" >&2
+  exit 1
+fi
+
+if [[ ! -x "$HOME/.local/bin/npm" ]]; then
+  echo "Expected npm at $HOME/.local/bin/npm; install Node/npm before continuing." >&2
+  exit 1
+fi
+
+mkdir -p "$UNIT_DST"
+for unit in "${required_units[@]}"; do
+  cp "$UNIT_SRC/$unit" "$UNIT_DST/$unit"
+done
+
+systemctl --user daemon-reload
+systemctl --user enable "${enabled_units[@]}"
+
+# Keep the user's systemd manager alive at boot even before an interactive login.
+sudo loginctl enable-linger "$USER"
+
+if command -v tailscale >/dev/null 2>&1; then
+  # Serve stays private to the tailnet and resumes after reboot when configured with --bg.
+  sudo tailscale serve --bg 5173
+else
+  echo "WARNING: tailscale is not installed; private HTTPS Serve was not configured." >&2
+fi
+
+if $START_NOW; then
+  systemctl --user restart "${enabled_units[@]}"
+fi
+
+echo
+printf 'Installed Brownie web-control autostart.\n'
+printf 'Enabled: %s\n' "${enabled_units[*]}"
+printf 'Tailscale Serve target: http://127.0.0.1:5173\n'
+if ! $START_NOW; then
+  echo "Services were not started/restarted. Reboot, or rerun with --start after stopping manual dev processes."
+fi
