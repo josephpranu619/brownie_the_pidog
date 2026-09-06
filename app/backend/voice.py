@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from robot_hat import Music
@@ -23,7 +23,17 @@ REPLAY_PATH = Path("/tmp/brownie-voice-replay.wav")
 RECENT_MAX_FILES = 10
 RECENT_MAX_BYTES = 100 * 1024 * 1024
 BROWNIE_RECORD_MAX_SECONDS = 180
+DEVICE_RECORD_MAX_SECONDS = 180
+DEVICE_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
 ALLOWED_SOUND_SUFFIXES = {".mp3", ".wav"}
+DEVICE_AUDIO_TYPES = {
+    "audio/webm": ".webm",
+    "audio/ogg": ".ogg",
+    "audio/mp4": ".m4a",
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+}
 
 _player_lock = threading.Lock()
 _player = None
@@ -308,6 +318,81 @@ def recording_status():
         }
 
 
+async def save_device_recording(request: Request):
+    if not shutil.which("ffmpeg"):
+        raise HTTPException(status_code=503, detail="ffmpeg is required for device microphone uploads")
+
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    suffix = DEVICE_AUDIO_TYPES.get(content_type)
+    if suffix is None:
+        raise HTTPException(status_code=415, detail=f"Unsupported device audio type: {content_type or 'unknown'}")
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > DEVICE_UPLOAD_MAX_BYTES:
+                raise HTTPException(status_code=413, detail="Device microphone upload is too large")
+        except ValueError:
+            pass
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Device microphone upload was empty")
+    if len(payload) > DEVICE_UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Device microphone upload is too large")
+
+    ensure_recording_dirs()
+    token = uuid4().hex[:6]
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    input_path = Path(f"/tmp/brownie-device-upload-{token}{suffix}")
+    output_path = RECENT_DIR / f"device_{timestamp}_{token}.wav"
+
+    try:
+        input_path.write_bytes(payload)
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(input_path),
+                "-t",
+                str(DEVICE_RECORD_MAX_SECONDS),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "48000",
+                "-c:a",
+                "pcm_s16le",
+                str(output_path),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=45.0,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or "ffmpeg failed"
+            output_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=503, detail=f"Could not prepare device recording: {detail}")
+
+        if not output_path.exists() or output_path.stat().st_size <= 44:
+            output_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=503, detail="Device microphone recording was empty")
+
+        cleanup_recent()
+        return recording_info("recent", output_path)
+    except subprocess.TimeoutExpired as exc:
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail="Device recording conversion timed out") from exc
+    finally:
+        input_path.unlink(missing_ok=True)
+
+
 def start_recording_playback(path: Path, volume: int):
     global _replay_process
 
@@ -423,6 +508,12 @@ def start_recording_from_brownie():
 def stop_recording_from_brownie():
     item = stop_brownie_recording()
     return {"ok": True, "recording": item, "message": "Brownie microphone recording stopped"}
+
+
+@router.post("/recordings/upload-device")
+async def upload_device_recording(request: Request):
+    item = await save_device_recording(request)
+    return {"ok": True, "recording": item, "message": "Device microphone recording saved to Recent"}
 
 
 @router.post("/recordings/play")
