@@ -7,8 +7,8 @@ of modifying the installed Hermes checkout in ~/.hermes.
 Responsibilities:
 - replace Hermes' PortAudio/sounddevice record beeps with 48 kHz PulseAudio WAV
   playback, matching Brownie's Robot HAT output path;
-- drive Brownie's listening LED through brownie-bodyd while voice recording is
-  active.
+- drive Brownie's listening LED through brownie-bodyd from Hermes' stable voice
+  cue boundary: 880 Hz start cue = listening on, 660 Hz double stop cue = off.
 
 All hooks are best-effort: a missing body daemon or speaker must never break the
 Hermes voice loop.
@@ -83,15 +83,29 @@ def _write_beep(path: Path, *, frequency: int, duration: float, count: int) -> N
 
 
 def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int = 1) -> None:
-    """Hermes-compatible beep function using Brownie's clean PulseAudio path."""
+    """Hermes-compatible voice cue using Brownie's clean PulseAudio path.
+
+    Hermes uses one 880 Hz beep immediately before recording and two 660 Hz beeps
+    immediately after recording stops. Those stable cue semantics also drive the
+    listening LED, avoiding dependence on Hermes' internal CLI class layout.
+    """
     try:
-        path = _beep_path(int(frequency), float(duration), int(count))
+        frequency = int(frequency)
+        count = max(1, int(count))
+        duration = float(duration)
+
+        if frequency == 880 and count == 1:
+            _body_command("led loading")
+        elif frequency == 660 and count == 2:
+            _body_command("led off")
+
+        path = _beep_path(frequency, duration, count)
         if not path.exists():
             _write_beep(
                 path,
-                frequency=int(frequency),
-                duration=float(duration),
-                count=max(1, int(count)),
+                frequency=frequency,
+                duration=duration,
+                count=count,
             )
 
         subprocess.run(
@@ -103,18 +117,8 @@ def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int 
             timeout=max(2.0, count * (duration + BEEP_GAP_SECONDS) + 1.0),
         )
     except Exception:
-        # Audible feedback is useful, but it must never take down voice mode.
+        # Feedback is useful, but it must never take down voice mode.
         pass
-
-
-def _voice_owner_class():
-    """Return the class that owns Hermes' voice methods across old/new layouts."""
-    try:
-        from hermes_cli.cli_voice_mixin import CLIVoiceMixin
-        return CLIVoiceMixin, "CLIVoiceMixin"
-    except (ImportError, ModuleNotFoundError):
-        from cli import HermesCLI
-        return HermesCLI, "HermesCLI"
 
 
 def _install_hooks() -> None:
@@ -123,39 +127,11 @@ def _install_hooks() -> None:
 
         voice_mode.play_beep = _brownie_play_beep
     except Exception as exc:
-        print(f"Brownie Hermes beep hook unavailable: {exc}", file=sys.stderr, flush=True)
-        return
-
-    try:
-        voice_owner, voice_owner_name = _voice_owner_class()
-        original_start = voice_owner._voice_start_recording
-        original_stop = voice_owner._voice_stop_and_transcribe
-
-        def brownie_start_recording(self, *args, **kwargs):
-            try:
-                result = original_start(self, *args, **kwargs)
-            except Exception:
-                _body_command("led off")
-                raise
-
-            if getattr(self, "_voice_recording", False):
-                _body_command("led loading")
-            return result
-
-        def brownie_stop_and_transcribe(self, *args, **kwargs):
-            # Turn the visual listening indicator off at the same state boundary
-            # where Hermes stops accepting the user's speech.
-            _body_command("led off")
-            return original_stop(self, *args, **kwargs)
-
-        voice_owner._voice_start_recording = brownie_start_recording
-        voice_owner._voice_stop_and_transcribe = brownie_stop_and_transcribe
-    except Exception as exc:
-        print(f"Brownie Hermes LED hook unavailable: {exc}", file=sys.stderr, flush=True)
+        print(f"Brownie Hermes hook unavailable: {exc}", file=sys.stderr, flush=True)
         return
 
     print(
-        f"Brownie Hermes hooks active: 48 kHz beeps + listening LED ({voice_owner_name})",
+        "Brownie Hermes hooks active: 48 kHz beeps + cue-driven listening LED",
         file=sys.stderr,
         flush=True,
     )
