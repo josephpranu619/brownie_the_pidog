@@ -1,0 +1,151 @@
+"""Brownie-specific Hermes runtime hooks.
+
+Loaded automatically by Python when ``integrations/hermes`` is on PYTHONPATH.
+This keeps Brownie's hardware/audio adaptations in the Brownie repository instead
+of modifying the installed Hermes checkout in ~/.hermes.
+
+Responsibilities:
+- replace Hermes' PortAudio/sounddevice record beeps with 48 kHz PulseAudio WAV
+  playback, matching Brownie's Robot HAT output path;
+- drive Brownie's listening LED through brownie-bodyd while voice recording is
+  active.
+
+All hooks are best-effort: a missing body daemon or speaker must never break the
+Hermes voice loop.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import socket
+import struct
+import subprocess
+import sys
+import wave
+from pathlib import Path
+
+BODY_SOCKET = Path("/tmp/brownie-body.sock")
+BEEP_RATE = 48_000
+BEEP_AMPLITUDE = 0.22
+BEEP_GAP_SECONDS = 0.08
+BEEP_FADE_SECONDS = 0.008
+BEEP_DIR = Path("/tmp/brownie-hermes-beeps")
+
+
+def _body_command(command: str) -> None:
+    """Send a best-effort command to brownie-bodyd."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            sock.connect(str(BODY_SOCKET))
+            sock.sendall((command + "\n").encode())
+            sock.recv(4096)
+    except Exception:
+        pass
+
+
+def _beep_path(frequency: int, duration: float, count: int) -> Path:
+    duration_ms = max(1, int(round(duration * 1000)))
+    return BEEP_DIR / f"{frequency}hz-{duration_ms}ms-x{count}.wav"
+
+
+def _write_beep(path: Path, *, frequency: int, duration: float, count: int) -> None:
+    BEEP_DIR.mkdir(parents=True, exist_ok=True)
+
+    tone_samples = max(1, int(BEEP_RATE * duration))
+    fade_samples = min(int(BEEP_RATE * BEEP_FADE_SECONDS), tone_samples // 2)
+    gap_samples = int(BEEP_RATE * BEEP_GAP_SECONDS)
+    pcm = bytearray()
+
+    for beep_index in range(count):
+        for i in range(tone_samples):
+            gain = 1.0
+            if fade_samples:
+                if i < fade_samples:
+                    gain = i / fade_samples
+                elif i >= tone_samples - fade_samples:
+                    gain = max(0.0, (tone_samples - i - 1) / fade_samples)
+
+            value = BEEP_AMPLITUDE * gain * math.sin(2 * math.pi * frequency * i / BEEP_RATE)
+            pcm.extend(struct.pack("<h", int(value * 32767)))
+
+        if beep_index < count - 1:
+            pcm.extend(b"\x00\x00" * gap_samples)
+
+    temp_path = path.with_suffix(".tmp.wav")
+    with wave.open(str(temp_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(BEEP_RATE)
+        wav_file.writeframes(bytes(pcm))
+    os.replace(temp_path, path)
+
+
+def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int = 1) -> None:
+    """Hermes-compatible beep function using Brownie's clean PulseAudio path."""
+    try:
+        path = _beep_path(int(frequency), float(duration), int(count))
+        if not path.exists():
+            _write_beep(
+                path,
+                frequency=int(frequency),
+                duration=float(duration),
+                count=max(1, int(count)),
+            )
+
+        subprocess.run(
+            ["paplay", str(path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=max(2.0, count * (duration + BEEP_GAP_SECONDS) + 1.0),
+        )
+    except Exception:
+        # Audible feedback is useful, but it must never take down voice mode.
+        pass
+
+
+def _install_hooks() -> None:
+    try:
+        from tools import voice_mode
+
+        voice_mode.play_beep = _brownie_play_beep
+    except Exception as exc:
+        print(f"Brownie Hermes beep hook unavailable: {exc}", file=sys.stderr, flush=True)
+        return
+
+    try:
+        from hermes_cli.cli_voice_mixin import CLIVoiceMixin
+
+        original_start = CLIVoiceMixin._voice_start_recording
+        original_stop = CLIVoiceMixin._voice_stop_and_transcribe
+
+        def brownie_start_recording(self, *args, **kwargs):
+            try:
+                result = original_start(self, *args, **kwargs)
+            except Exception:
+                _body_command("led off")
+                raise
+
+            if getattr(self, "_voice_recording", False):
+                _body_command("led loading")
+            return result
+
+        def brownie_stop_and_transcribe(self, *args, **kwargs):
+            # Turn the visual listening indicator off at the same state boundary
+            # where Hermes stops accepting the user's speech.
+            _body_command("led off")
+            return original_stop(self, *args, **kwargs)
+
+        CLIVoiceMixin._voice_start_recording = brownie_start_recording
+        CLIVoiceMixin._voice_stop_and_transcribe = brownie_stop_and_transcribe
+    except Exception as exc:
+        print(f"Brownie Hermes LED hook unavailable: {exc}", file=sys.stderr, flush=True)
+        return
+
+    print("Brownie Hermes hooks active: 48 kHz beeps + listening LED", file=sys.stderr, flush=True)
+
+
+_install_hooks()
