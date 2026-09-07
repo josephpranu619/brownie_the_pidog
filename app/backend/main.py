@@ -9,10 +9,12 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
+from behavior_api import router as behavior_router
 from voice import router as voice_router
 
 app = FastAPI(title="Brownie Web API", version="0.1.0")
 app.include_router(voice_router)
+app.include_router(behavior_router)
 
 CPU_TEMP_PATH = Path("/sys/class/thermal/thermal_zone0/temp")
 CPU_STAT_PATH = Path("/proc/stat")
@@ -610,6 +612,19 @@ def led_loading():
     return {
         "led_mode": body.get("led_mode", "loading"),
         "message": body.get("message", "LED loading pattern enabled"),
+    }
+
+
+@app.post("/api/accessories/led/neon")
+def led_neon():
+    body = require_body_response(
+        "led neon",
+        conflict_message="Brownie's LED controller is unavailable",
+        timeout=2.0,
+    )
+    return {
+        "led_mode": body.get("led_mode", "neon"),
+        "message": body.get("message", "Neon Pulse enabled"),
     }
 
 
