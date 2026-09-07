@@ -11,10 +11,16 @@ from pathlib import Path
 SOCKET_PATH = Path("/tmp/brownie-body.sock")
 MANUAL_LEASE_SECONDS = 8.0
 HEAD_STEP_DEGREES = 20
-HEAD_LIMIT_DEGREES = 40
+HEAD_YAW_LIMIT_DEGREES = 40
+HEAD_PITCH_MIN_DEGREES = -40
+HEAD_PITCH_MAX_DEGREES = 30
+HEAD_PITCH_OFFSET_DEGREES = 45
 HEAD_SPEED = 80
+HEAD_PINS = [4, 6, 5]
+PIDOG_CONFIG_PATH = Path.home() / ".config/pidog/pidog.conf"
 
 DOG = None
+HEAD_ONLY = None
 CURRENT_POSE = None
 CURRENT_HEAD_YRP = [0, 0, 0]
 MANUAL_LEASE_ID = None
@@ -126,6 +132,62 @@ def set_led_mode(mode):
     CURRENT_LED_MODE = mode
 
 
+
+def release_head_only():
+    """Release Brownie's lightweight head-only software owner."""
+    global HEAD_ONLY
+    HEAD_ONLY = None
+
+
+def initialize_head_only():
+    """Initialize only the three neck servos without waking Brownie's body."""
+    global HEAD_ONLY
+
+    if DOG is not None:
+        return DOG.head
+
+    if HEAD_ONLY is not None:
+        return HEAD_ONLY
+
+    from robot_hat import Robot
+
+    raw_angles = [
+        CURRENT_HEAD_YRP[0],
+        CURRENT_HEAD_YRP[1],
+        CURRENT_HEAD_YRP[2] + HEAD_PITCH_OFFSET_DEGREES,
+    ]
+
+    HEAD_ONLY = Robot(
+        pin_list=HEAD_PINS,
+        name="head",
+        init_angles=raw_angles,
+        db=str(PIDOG_CONFIG_PATH),
+    )
+    HEAD_ONLY.max_dps = 300
+
+    print("HEAD-ONLY MODE: neck servos initialized without full Pidog hardware.", flush=True)
+    return HEAD_ONLY
+
+
+def move_head_to_current():
+    """Move through the full Pidog owner when present, otherwise head-only."""
+    if DOG is not None:
+        DOG.head_move(
+            [list(CURRENT_HEAD_YRP)],
+            immediately=True,
+            speed=HEAD_SPEED,
+        )
+        return
+
+    head = initialize_head_only()
+    raw_angles = [
+        CURRENT_HEAD_YRP[0],
+        CURRENT_HEAD_YRP[1],
+        CURRENT_HEAD_YRP[2] + HEAD_PITCH_OFFSET_DEGREES,
+    ]
+    head.servo_move(raw_angles, speed=HEAD_SPEED)
+
+
 def initialize_body_to_pose(pose):
     """
     Create one persistent Pidog instance directly in the explicitly requested pose.
@@ -142,7 +204,9 @@ def initialize_body_to_pose(pose):
     # The full Pidog object creates its own RGBStrip instance. Release any
     # standalone LED-only owner first so there is always exactly one I2C owner.
     desired_led_mode = CURRENT_LED_MODE
+    desired_head_yrp = list(CURRENT_HEAD_YRP)
     shutdown_led_only()
+    release_head_only()
 
     from pidog import Pidog
     from pidog.actions_dictionary import ActionDict
@@ -155,11 +219,10 @@ def initialize_body_to_pose(pose):
 
     DOG = Pidog(
         leg_init_angles=list(leg_frames[0]),
-        head_init_angles=[0, 0, 0],
+        head_init_angles=desired_head_yrp,
         tail_init_angle=[0],
     )
     CURRENT_POSE = pose
-    CURRENT_HEAD_YRP[:] = [0, 0, 0]
 
     if "rgb" in DOG.thread_list and hasattr(DOG, "rgb_strip"):
         _apply_led_mode(DOG.rgb_strip, desired_led_mode)
@@ -367,6 +430,7 @@ def handle(command):
         return {
             "ok": True,
             "body_initialized": body_initialized(),
+            "head_initialized": body_initialized() or HEAD_ONLY is not None,
             "pose": CURRENT_POSE,
             "head_yrp": list(CURRENT_HEAD_YRP),
             "battery_voltage": read_battery_voltage(),
@@ -577,32 +641,34 @@ def handle(command):
                 **control_state(),
             }
 
-        if not body_initialized():
-            return {
-                "ok": False,
-                "error": "Brownie's body hardware must be initialized before head movement is enabled.",
-                **control_state(),
-            }
-
         if direction == "up":
-            CURRENT_HEAD_YRP[2] = min(HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[2] + HEAD_STEP_DEGREES)
+            CURRENT_HEAD_YRP[2] = min(
+                HEAD_PITCH_MAX_DEGREES,
+                CURRENT_HEAD_YRP[2] + HEAD_STEP_DEGREES,
+            )
         elif direction == "down":
-            CURRENT_HEAD_YRP[2] = max(-HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[2] - HEAD_STEP_DEGREES)
+            CURRENT_HEAD_YRP[2] = max(
+                HEAD_PITCH_MIN_DEGREES,
+                CURRENT_HEAD_YRP[2] - HEAD_STEP_DEGREES,
+            )
         elif direction == "left":
-            CURRENT_HEAD_YRP[0] = min(HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[0] + HEAD_STEP_DEGREES)
+            CURRENT_HEAD_YRP[0] = min(
+                HEAD_YAW_LIMIT_DEGREES,
+                CURRENT_HEAD_YRP[0] + HEAD_STEP_DEGREES,
+            )
         else:
-            CURRENT_HEAD_YRP[0] = max(-HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[0] - HEAD_STEP_DEGREES)
+            CURRENT_HEAD_YRP[0] = max(
+                -HEAD_YAW_LIMIT_DEGREES,
+                CURRENT_HEAD_YRP[0] - HEAD_STEP_DEGREES,
+            )
 
-        DOG.head_move(
-            [list(CURRENT_HEAD_YRP)],
-            immediately=True,
-            speed=HEAD_SPEED,
-        )
+        move_head_to_current()
         renew_manual_lease(lease_id)
 
         return {
             "ok": True,
-            "body_initialized": True,
+            "body_initialized": body_initialized(),
+            "head_initialized": True,
             "pose": CURRENT_POSE,
             "direction": direction,
             "head_yrp": list(CURRENT_HEAD_YRP),
@@ -712,6 +778,7 @@ def main():
         except Exception:
             pass
         shutdown_led_only()
+        release_head_only()
         shutdown_body_preserve_posture()
 
         server.close()

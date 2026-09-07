@@ -177,7 +177,7 @@ function ControlScreen({
     : 'Unknown'
   const cpuGaugeValue = cpuUsage == null ? 0 : Math.max(0, Math.min(100, cpuUsage))
   const bodyDpadEnabled = manualLeaseHeld && pose === 'stand' && !motionBusy
-  const headDpadEnabled = manualLeaseHeld && pose != null && !motionBusy
+  const headDpadEnabled = manualLeaseHeld && !motionBusy
   const battery = batteryHealth(batteryVoltage)
 
   return (
@@ -309,7 +309,7 @@ function ControlScreen({
                 ? 'BODY + HEAD TAP MODE'
                 : pose
                   ? 'HEAD TAP MODE · STAND TO DRIVE'
-                  : 'INITIALIZE POSTURE TO CONTROL'
+                  : 'HEAD TAP MODE · BODY PASSIVE'
               : manualHeldElsewhere
                 ? 'OTHER DEVICE'
                 : controlMode === 'autonomous'
@@ -773,7 +773,7 @@ function App() {
           const data = await response.json()
           setToast(data.message || `Head ${direction} requested`)
         } catch {
-          setToast('Head movement rejected · initialize posture and try again')
+          setToast('Head movement rejected')
         } finally {
           setMotionBusy(false)
           clearTimeout(timeout)
