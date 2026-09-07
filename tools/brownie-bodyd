@@ -45,6 +45,15 @@ def _apply_led_mode(strip, mode):
         )
         return
 
+    if mode == "neon":
+        strip.set_mode(
+            "boom",
+            color="magenta",
+            bps=1.2,
+            brightness=0.55,
+        )
+        return
+
     if mode == "off":
         strip.set_mode(
             "breath",
@@ -114,7 +123,7 @@ def initialize_led_only():
 def set_led_mode(mode):
     global CURRENT_LED_MODE
 
-    if mode not in {"loading", "off"}:
+    if mode not in {"loading", "neon", "off"}:
         raise ValueError(f"Unsupported LED mode: {mode}")
 
     # Do not wake the I2C LED device merely to keep an already-dark passive
@@ -678,7 +687,7 @@ def handle(command):
         }
 
     if verb == "led":
-        if argument not in {"loading", "off"}:
+        if argument not in {"loading", "neon", "off"}:
             return {
                 "ok": False,
                 "error": f"Unsupported LED mode: {argument}",
@@ -694,15 +703,18 @@ def handle(command):
                 **control_state(),
             }
 
+        if argument == "loading":
+            message = "Brownie LED listening pattern enabled."
+        elif argument == "neon":
+            message = "Brownie Neon Pulse enabled."
+        else:
+            message = "Brownie LEDs turned off."
+
         return {
             "ok": True,
             "led_mode": argument,
             **control_state(),
-            "message": (
-                "Brownie LED listening pattern enabled."
-                if argument == "loading"
-                else "Brownie LEDs turned off."
-            ),
+            "message": message,
         }
 
     if verb == "stop":
