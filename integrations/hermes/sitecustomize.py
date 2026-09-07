@@ -22,15 +22,26 @@ import socket
 import struct
 import subprocess
 import sys
+import time
 import wave
 from pathlib import Path
 
 BODY_SOCKET = Path("/tmp/brownie-body.sock")
+TRACE_PATH = Path("/tmp/brownie-hermes-hook.log")
 BEEP_RATE = 48_000
 BEEP_AMPLITUDE = 0.22
 BEEP_GAP_SECONDS = 0.08
 BEEP_FADE_SECONDS = 0.008
 BEEP_DIR = Path("/tmp/brownie-hermes-beeps")
+
+
+def _trace(message: str) -> None:
+    """Write a minimal runtime trace independent of Hermes' terminal/journal path."""
+    try:
+        with TRACE_PATH.open("a", encoding="utf-8") as trace:
+            trace.write(f"{time.time():.6f} pid={os.getpid()} {message}\n")
+    except Exception:
+        pass
 
 
 def _body_command(command: str) -> str:
@@ -103,11 +114,9 @@ def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int 
             led_action = "off"
             led_reply = _body_command("led off")
 
-        print(
-            f"Brownie voice cue: {frequency}Hz x{count} -> LED {led_action}; bodyd={led_reply}",
-            file=sys.stderr,
-            flush=True,
-        )
+        message = f"cue {frequency}Hz x{count} -> LED {led_action}; bodyd={led_reply}"
+        _trace(message)
+        print(f"Brownie voice cue: {message}", file=sys.stderr, flush=True)
 
         path = _beep_path(frequency, duration, count)
         if not path.exists():
@@ -127,6 +136,7 @@ def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int 
             timeout=max(2.0, count * (duration + BEEP_GAP_SECONDS) + 1.0),
         )
     except Exception as exc:
+        _trace(f"cue hook error: {exc}")
         print(f"Brownie voice cue hook error: {exc}", file=sys.stderr, flush=True)
 
 
@@ -136,9 +146,11 @@ def _install_hooks() -> None:
 
         voice_mode.play_beep = _brownie_play_beep
     except Exception as exc:
+        _trace(f"install failed: {exc}")
         print(f"Brownie Hermes hook unavailable: {exc}", file=sys.stderr, flush=True)
         return
 
+    _trace(f"installed voice_mode={getattr(voice_mode, '__file__', '?')}")
     print(
         "Brownie Hermes hooks active: 48 kHz beeps + cue-driven listening LED",
         file=sys.stderr,
