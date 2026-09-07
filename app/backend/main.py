@@ -524,6 +524,25 @@ def move_body(direction: str, lease_id: str, speed: int = 80):
     }
 
 
+@app.post("/api/motion/head")
+def move_head(direction: str, lease_id: str):
+    if direction not in {"up", "down", "left", "right"}:
+        raise HTTPException(status_code=400, detail="Unsupported head direction")
+
+    body = require_body_response(
+        f"head {lease_id} {direction}",
+        timeout=2.0,
+    )
+
+    return {
+        "pose": body.get("pose"),
+        "direction": body.get("direction", direction),
+        "head_yrp": body.get("head_yrp"),
+        "speed": body.get("speed"),
+        "message": body.get("message", "Head movement requested"),
+    }
+
+
 @app.post("/api/motion/stop")
 def stop_motion():
     body = require_body_response("stop", timeout=2.0)
