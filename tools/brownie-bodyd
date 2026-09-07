@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import socket
+import threading
 import time
 from pathlib import Path
 
@@ -14,6 +15,111 @@ DOG = None
 CURRENT_POSE = None
 MANUAL_LEASE_ID = None
 MANUAL_LEASE_EXPIRES_AT = 0.0
+
+# The RGB strip can be owned independently of the full Pidog object. This lets
+# voice-state feedback work while Brownie's body remains passive, without
+# initializing legs, IMU, sound direction, or sound effects just to light LEDs.
+LED_STRIP = None
+LED_THREAD = None
+LED_THREAD_RUN = False
+CURRENT_LED_MODE = "off"
+
+
+def _apply_led_mode(strip, mode):
+    if mode == "loading":
+        strip.set_mode(
+            "listen",
+            color="cyan",
+            bps=1.5,
+            brightness=0.45,
+        )
+        return
+
+    if mode == "off":
+        strip.set_mode(
+            "breath",
+            color="black",
+            bps=1,
+            brightness=0,
+        )
+        return
+
+    raise ValueError(f"Unsupported LED mode: {mode}")
+
+
+def shutdown_led_only():
+    """Release the standalone RGB-strip owner before full Pidog init or exit."""
+    global LED_STRIP, LED_THREAD, LED_THREAD_RUN
+
+    if LED_STRIP is None:
+        return
+
+    LED_THREAD_RUN = False
+    if LED_THREAD is not None:
+        LED_THREAD.join(timeout=1)
+
+    try:
+        LED_STRIP.close()
+    except Exception:
+        pass
+
+    LED_STRIP = None
+    LED_THREAD = None
+
+
+def initialize_led_only():
+    """Initialize only the RGB strip and its animation thread."""
+    global LED_STRIP, LED_THREAD, LED_THREAD_RUN
+
+    if DOG is not None and "rgb" in DOG.thread_list and hasattr(DOG, "rgb_strip"):
+        return DOG.rgb_strip
+
+    if LED_STRIP is not None:
+        return LED_STRIP
+
+    from pidog.rgb_strip import RGBStrip
+
+    LED_STRIP = RGBStrip(addr=0x74, nums=11)
+    _apply_led_mode(LED_STRIP, CURRENT_LED_MODE)
+    LED_THREAD_RUN = True
+
+    def _run_led_strip():
+        while LED_THREAD_RUN:
+            try:
+                LED_STRIP.show()
+            except Exception as exc:
+                print(f"LED-ONLY ERROR: {exc}", flush=True)
+                time.sleep(0.1)
+
+    LED_THREAD = threading.Thread(
+        name="brownie-led-only",
+        target=_run_led_strip,
+        daemon=True,
+    )
+    LED_THREAD.start()
+    print("LED-ONLY MODE: RGB strip initialized without full Pidog hardware.", flush=True)
+    return LED_STRIP
+
+
+def set_led_mode(mode):
+    global CURRENT_LED_MODE
+
+    if mode not in {"loading", "off"}:
+        raise ValueError(f"Unsupported LED mode: {mode}")
+
+    # Do not wake the I2C LED device merely to keep an already-dark passive
+    # robot dark. The first visible mode will initialize it when needed.
+    if mode == "off" and DOG is None and LED_STRIP is None:
+        CURRENT_LED_MODE = "off"
+        return
+
+    strip = (
+        DOG.rgb_strip
+        if DOG is not None and "rgb" in DOG.thread_list and hasattr(DOG, "rgb_strip")
+        else initialize_led_only()
+    )
+    _apply_led_mode(strip, mode)
+    CURRENT_LED_MODE = mode
 
 
 def initialize_body_to_pose(pose):
@@ -28,6 +134,11 @@ def initialize_body_to_pose(pose):
 
     if pose not in {"stand", "sit", "lie"}:
         raise ValueError(f"Unsupported initial pose: {pose}")
+
+    # The full Pidog object creates its own RGBStrip instance. Release any
+    # standalone LED-only owner first so there is always exactly one I2C owner.
+    desired_led_mode = CURRENT_LED_MODE
+    shutdown_led_only()
 
     from pidog import Pidog
     from pidog.actions_dictionary import ActionDict
@@ -44,6 +155,9 @@ def initialize_body_to_pose(pose):
         tail_init_angle=[0],
     )
     CURRENT_POSE = pose
+
+    if "rgb" in DOG.thread_list and hasattr(DOG, "rgb_strip"):
+        _apply_led_mode(DOG.rgb_strip, desired_led_mode)
 
 
 def body_initialized():
@@ -250,6 +364,7 @@ def handle(command):
             "body_initialized": body_initialized(),
             "pose": CURRENT_POSE,
             "battery_voltage": read_battery_voltage(),
+            "led_mode": CURRENT_LED_MODE,
             **control_state(),
             "message": (
                 "Brownie body controller owns the body."
@@ -431,45 +546,31 @@ def handle(command):
         }
 
     if verb == "led":
-        if not body_initialized() or "rgb" not in DOG.thread_list or not hasattr(DOG, "rgb_strip"):
+        if argument not in {"loading", "off"}:
             return {
                 "ok": False,
-                "error": "LED control is available after Brownie's body hardware is initialized.",
+                "error": f"Unsupported LED mode: {argument}",
                 **control_state(),
             }
 
-        if argument == "loading":
-            DOG.rgb_strip.set_mode(
-                "listen",
-                color="cyan",
-                bps=1.5,
-                brightness=0.45,
-            )
+        try:
+            set_led_mode(argument)
+        except Exception as exc:
             return {
-                "ok": True,
-                "led_mode": "loading",
+                "ok": False,
+                "error": f"LED control failed: {exc}",
                 **control_state(),
-                "message": "Brownie LED loading pattern enabled.",
-            }
-
-        if argument == "off":
-            DOG.rgb_strip.set_mode(
-                "breath",
-                color="black",
-                bps=1,
-                brightness=0,
-            )
-            return {
-                "ok": True,
-                "led_mode": "off",
-                **control_state(),
-                "message": "Brownie LEDs turned off.",
             }
 
         return {
-            "ok": False,
-            "error": f"Unsupported LED mode: {argument}",
+            "ok": True,
+            "led_mode": argument,
             **control_state(),
+            "message": (
+                "Brownie LED listening pattern enabled."
+                if argument == "loading"
+                else "Brownie LEDs turned off."
+            ),
         }
 
     if verb == "stop":
@@ -539,6 +640,11 @@ def main():
 
     finally:
         clear_manual_lease()
+        try:
+            set_led_mode("off")
+        except Exception:
+            pass
+        shutdown_led_only()
         shutdown_body_preserve_posture()
 
         server.close()
