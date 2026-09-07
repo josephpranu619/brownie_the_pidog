@@ -18,12 +18,15 @@ required_units=(
   brownie-bodyd.service
   brownie-web-api.service
   brownie-web-ui.service
+  brownie-hermes.service
 )
 
 enabled_units=(
+  brownie-mic.service
   brownie-bodyd.service
   brownie-web-api.service
   brownie-web-ui.service
+  brownie-hermes.service
 )
 
 for unit in "${required_units[@]}"; do
