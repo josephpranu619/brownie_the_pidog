@@ -93,28 +93,20 @@ def _monitor_behavior(process):
 
 
 def _active_behavior_locked():
-    global _behavior_process, _behavior_name
-
-    process = _behavior_process
-    if process is None:
-        return None, None
-
-    if process.poll() is None:
-        return _behavior_name, process
-
-    _behavior_process = None
-    _behavior_name = None
-    _close_behavior_log()
-    return None, None
+    # Keep the process reference until its monitor performs cleanup/restoration.
+    # This prevents a status poll from clearing an exited process just before
+    # the monitor can restart brownie-bodyd.
+    return _behavior_name, _behavior_process
 
 
 def behavior_status():
     with _behavior_lock:
         name, process = _active_behavior_locked()
+        running = process is not None and process.poll() is None
         return {
-            "running": process is not None,
-            "behavior": name,
-            "pid": process.pid if process is not None else None,
+            "running": running,
+            "behavior": name if running else None,
+            "pid": process.pid if running else None,
         }
 
 
@@ -140,7 +132,7 @@ def start_behavior(name):
         if active_process is not None:
             raise HTTPException(
                 status_code=409,
-                detail=f"{active_name} is already running. Stop it before starting another behavior.",
+                detail=f"{active_name} is finishing. Wait for it to stop before starting another behavior.",
             )
 
     try:
@@ -148,6 +140,7 @@ def start_behavior(name):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=f"Could not hand off PiDog hardware: {exc}") from exc
 
+    log_handle = None
     try:
         log_handle = BEHAVIOR_LOG_PATH.open("a", buffering=1)
         process = subprocess.Popen(
@@ -158,10 +151,11 @@ def start_behavior(name):
             start_new_session=True,
         )
     except Exception as exc:
-        try:
-            log_handle.close()
-        except Exception:
-            pass
+        if log_handle is not None:
+            try:
+                log_handle.close()
+            except OSError:
+                pass
         _restore_body_controller()
         raise HTTPException(status_code=503, detail=f"Could not start behavior: {exc}") from exc
 
