@@ -2,11 +2,19 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import VoiceScreen from './VoiceScreen'
 
-const quickActions = [
-  ['😊', 'Happy', 'Tail + head gesture'],
-  ['👀', 'Curious', 'Look + head tilt'],
-  ['🤝', 'Handshake', 'Front paw action'],
-  ['🐾', 'Come here', 'Custom macro'],
+const brownieBehaviors = [
+  ['🌅', 'Wake Up', '1_wake_up.py'],
+  ['🎛', 'Function Demonstration', '2_function_demonstration.py'],
+  ['🐾', 'Patrol', '3_patrol.py'],
+  ['💬', 'Response', '4_response.py'],
+  ['💤', 'Rest', '5_rest.py'],
+  ['🤲', 'Be Picked Up', '6_be_picked_up.py'],
+  ['🙂', 'Face Track', '7_face_track.py'],
+  ['💪', 'Push Up', '8_pushup.py'],
+  ['🌙', 'Howling', '9_howling.py'],
+  ['⚖️', 'Balance', '10_balance.py'],
+  ['⌨️', 'Play PiDog with Keyboard', '11_keyboard_control.py'],
+  ['⚽', 'Ball Track', '13_ball_track.py'],
 ]
 
 const navItems = [
@@ -398,30 +406,21 @@ function ActionsScreen() {
         <div>
           <span className="eyebrow">ACTIONS</span>
           <h1>Brownie's behaviors</h1>
-          <p>This will become the home for built-in actions and your own reusable macros.</p>
+          <p>Built-in PiDog behaviors listed from Brownie's behavior launcher.</p>
         </div>
-        <span className="sim-badge">SIMULATED</span>
+        <span className="sim-badge">12 BEHAVIORS</span>
       </div>
 
       <section className="actions-library">
-        {quickActions.map(([icon, name, description]) => (
-          <ActionButton className="card behavior-card" action={name} key={name}>
+        {brownieBehaviors.map(([icon, name, script]) => (
+          <div className="card behavior-card" key={name}>
             <span className="behavior-icon">{icon}</span>
             <span className="behavior-copy">
               <b>{name}</b>
-              <small>{description}</small>
+              <small>PiDog example · {script}</small>
             </span>
-            <span className="behavior-play">▶</span>
-          </ActionButton>
+          </div>
         ))}
-
-        <ActionButton className="card behavior-card add-behavior" action="Create custom action">
-          <span className="behavior-icon">＋</span>
-          <span className="behavior-copy">
-            <b>New custom action</b>
-            <small>Combine movement, head, tail and sound later</small>
-          </span>
-        </ActionButton>
       </section>
     </div>
   )
