@@ -110,6 +110,46 @@ function thermalLabel(cpuTemp) {
   return 'Comfortable'
 }
 
+function batteryHealth(voltage) {
+  if (voltage == null) {
+    return {
+      className: '',
+      badge: null,
+      detail: 'Waiting for battery',
+    }
+  }
+
+  if (voltage < 6.7) {
+    return {
+      className: 'battery-emergency',
+      badge: 'PLUG IN NOW',
+      detail: `SHUTDOWN RISK · ${voltage.toFixed(2)} V`,
+    }
+  }
+
+  if (voltage < 6.9) {
+    return {
+      className: 'battery-critical',
+      badge: 'CRITICAL',
+      detail: `Plug Brownie in now · ${voltage.toFixed(2)} V`,
+    }
+  }
+
+  if (voltage < 7.2) {
+    return {
+      className: 'battery-warning',
+      badge: 'LOW',
+      detail: `Plug in soon · ${voltage.toFixed(2)} V`,
+    }
+  }
+
+  return {
+    className: '',
+    badge: null,
+    detail: `~ estimated · ${voltage.toFixed(2)} V`,
+  }
+}
+
 function ControlScreen({
   cpuTemp,
   cpuUsage,
@@ -137,6 +177,7 @@ function ControlScreen({
     : 'Unknown'
   const cpuGaugeValue = cpuUsage == null ? 0 : Math.max(0, Math.min(100, cpuUsage))
   const bodyDpadEnabled = manualLeaseHeld && pose === 'stand' && !motionBusy
+  const battery = batteryHealth(batteryVoltage)
 
   return (
     <>
@@ -152,15 +193,19 @@ function ControlScreen({
           <section className="card panel">
             <div className="section-title"><strong>Status</strong><span>LIVE TELEMETRY</span></div>
             <div className="telemetry">
-              <div className="metric">
-                <div className="metric-key">Battery</div>
+              <div
+                className={`metric battery-metric ${battery.className}`}
+                aria-live={battery.badge ? 'polite' : 'off'}
+              >
+                <div className="metric-heading-row">
+                  <div className="metric-key">Battery</div>
+                  {battery.badge && <span className="battery-alert-badge">{battery.badge}</span>}
+                </div>
                 <div className="metric-value">
                   {batteryPercent == null ? '—' : batteryPercent}
                   {batteryPercent != null && <span className="metric-unit">%</span>}
                 </div>
-                <div className="metric-detail">
-                  {batteryVoltage == null ? 'Waiting for battery' : `~ estimated · ${batteryVoltage.toFixed(2)} V`}
-                </div>
+                <div className="metric-detail battery-detail">{battery.detail}</div>
               </div>
 
               <div className="metric">
@@ -796,7 +841,7 @@ function App() {
     }
 
     refreshRobotStatus()
-    const interval = window.setInterval(refreshRobotStatus, 30000)
+    const interval = window.setInterval(refreshRobotStatus, 5000)
 
     return () => {
       cancelled = true
