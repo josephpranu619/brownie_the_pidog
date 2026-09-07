@@ -541,11 +541,8 @@ function VoiceScreen({ onToast }) {
     <div className="screen-stack">
       <div className="screen-heading">
         <div>
-          <span className="eyebrow">VOICE</span>
-          <h1>Brownie's audio center</h1>
-          <p>Play Default Sounds, record from Brownie or this device, and manage recordings without cluttering Control.</p>
+          <h1>Audio Center</h1>
         </div>
-        <span className="sim-badge">AUDIO LIVE</span>
       </div>
 
       <section className="card panel">
