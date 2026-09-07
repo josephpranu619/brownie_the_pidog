@@ -177,6 +177,7 @@ function ControlScreen({
     : 'Unknown'
   const cpuGaugeValue = cpuUsage == null ? 0 : Math.max(0, Math.min(100, cpuUsage))
   const bodyDpadEnabled = manualLeaseHeld && pose === 'stand' && !motionBusy
+  const headDpadEnabled = manualLeaseHeld && pose != null && !motionBusy
   const battery = batteryHealth(batteryVoltage)
 
   return (
@@ -305,8 +306,10 @@ function ControlScreen({
           <span>
             {manualLeaseHeld
               ? pose === 'stand'
-                ? 'BODY TAP MODE · HEAD NEXT'
-                : 'STAND TO DRIVE'
+                ? 'BODY + HEAD TAP MODE'
+                : pose
+                  ? 'HEAD TAP MODE · STAND TO DRIVE'
+                  : 'INITIALIZE POSTURE TO CONTROL'
               : manualHeldElsewhere
                 ? 'OTHER DEVICE'
                 : controlMode === 'autonomous'
@@ -322,7 +325,7 @@ function ControlScreen({
           }}
         >
           <DPad disabled={!bodyDpadEnabled} label="BODY" prefix="Body " />
-          <DPad disabled label="HEAD" prefix="Head " />
+          <DPad disabled={!headDpadEnabled} label="HEAD" prefix="Head " />
         </div>
       </section>
 
@@ -731,6 +734,46 @@ function App() {
           setToast(data.message || `Body ${direction} requested`)
         } catch {
           setToast('Body movement rejected · wait for Stand/motion to finish')
+        } finally {
+          setMotionBusy(false)
+          clearTimeout(timeout)
+          timeout = setTimeout(() => setToast(''), 1800)
+        }
+        return
+      }
+
+      const headDirections = {
+        'Head up': 'up',
+        'Head down': 'down',
+        'Head left': 'left',
+        'Head right': 'right',
+      }
+
+      if (headDirections[action]) {
+        if (!manualLeaseId || controlMode !== 'manual') {
+          setToast('Head movement requires Manual Control')
+          clearTimeout(timeout)
+          timeout = setTimeout(() => setToast(''), 1800)
+          return
+        }
+
+        const direction = headDirections[action]
+        setMotionBusy(true)
+        try {
+          const response = await fetch(
+            `/api/motion/head?direction=${encodeURIComponent(direction)}&lease_id=${encodeURIComponent(manualLeaseId)}`,
+            { method: 'POST', cache: 'no-store' },
+          )
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => null)
+            throw new Error(errorData?.detail || `Head ${response.status}`)
+          }
+
+          const data = await response.json()
+          setToast(data.message || `Head ${direction} requested`)
+        } catch {
+          setToast('Head movement rejected · initialize posture and try again')
         } finally {
           setMotionBusy(false)
           clearTimeout(timeout)
