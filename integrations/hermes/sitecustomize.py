@@ -107,6 +107,16 @@ def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int 
         pass
 
 
+def _voice_owner_class():
+    """Return the class that owns Hermes' voice methods across old/new layouts."""
+    try:
+        from hermes_cli.cli_voice_mixin import CLIVoiceMixin
+        return CLIVoiceMixin, "CLIVoiceMixin"
+    except (ImportError, ModuleNotFoundError):
+        from cli import HermesCLI
+        return HermesCLI, "HermesCLI"
+
+
 def _install_hooks() -> None:
     try:
         from tools import voice_mode
@@ -117,10 +127,9 @@ def _install_hooks() -> None:
         return
 
     try:
-        from hermes_cli.cli_voice_mixin import CLIVoiceMixin
-
-        original_start = CLIVoiceMixin._voice_start_recording
-        original_stop = CLIVoiceMixin._voice_stop_and_transcribe
+        voice_owner, voice_owner_name = _voice_owner_class()
+        original_start = voice_owner._voice_start_recording
+        original_stop = voice_owner._voice_stop_and_transcribe
 
         def brownie_start_recording(self, *args, **kwargs):
             try:
@@ -139,13 +148,17 @@ def _install_hooks() -> None:
             _body_command("led off")
             return original_stop(self, *args, **kwargs)
 
-        CLIVoiceMixin._voice_start_recording = brownie_start_recording
-        CLIVoiceMixin._voice_stop_and_transcribe = brownie_stop_and_transcribe
+        voice_owner._voice_start_recording = brownie_start_recording
+        voice_owner._voice_stop_and_transcribe = brownie_stop_and_transcribe
     except Exception as exc:
         print(f"Brownie Hermes LED hook unavailable: {exc}", file=sys.stderr, flush=True)
         return
 
-    print("Brownie Hermes hooks active: 48 kHz beeps + listening LED", file=sys.stderr, flush=True)
+    print(
+        f"Brownie Hermes hooks active: 48 kHz beeps + listening LED ({voice_owner_name})",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 _install_hooks()
