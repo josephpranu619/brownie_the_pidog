@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
+import BehaviorScreen from './BehaviorScreen'
 import VoiceScreen from './VoiceScreen'
 
 const brownieBehaviors = [
@@ -84,10 +85,11 @@ function CameraPreview({ large = false, cameraLive, cameraStreamKey, onToggleCam
           </button>
           <div className="pill">720p · 15 fps</div>
         </div>
-        <div className="camera-label">
-          <h1>Brownie Cam</h1>
-          <p>{cameraLive ? 'Front camera · live stream' : 'Camera off · press LIVE to stream'}</p>
-        </div>
+        {!large && (
+          <div className="camera-label">
+            <h1>POV</h1>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -341,15 +343,15 @@ function ControlScreen({
         <div className="section-title"><strong>Robot lights</strong><span>QUICK LED CONTROL</span></div>
         <div className="quick-row" style={{ gridTemplateColumns: '1fr' }}>
           <div className="quick" style={{ display: 'grid', gap: '10px', cursor: 'default' }}>
-            <b>💡 Loading pattern</b>
-            <span>Cyan sweep across Brownie's RGB strip. Available after PiDog hardware is initialized.</span>
+            <b>✨ Neon Pulse</b>
+            <span>Magenta light blooms outward from the center of Brownie's RGB strip.</span>
             <button
               type="button"
               className={`action ${ledLoading ? 'primary' : ''}`}
               onClick={onToggleLed}
               disabled={accessoryBusy === 'led'}
             >
-              {accessoryBusy === 'led' ? 'Changing…' : ledLoading ? 'Loading · ON' : 'Loading pattern'}
+              {accessoryBusy === 'led' ? 'Changing…' : ledLoading ? 'Neon Pulse · ON' : 'Neon Pulse'}
             </button>
           </div>
         </div>
@@ -361,15 +363,6 @@ function ControlScreen({
 function CameraScreen({ cameraLive, cameraStreamKey, onToggleCamera, onCameraError }) {
   return (
     <div className="screen-stack">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">CAMERA</span>
-          <h1>Brownie's view</h1>
-          <p>The camera stream only runs while LIVE is enabled.</p>
-        </div>
-        <span className="sim-badge">ON DEMAND</span>
-      </div>
-
       <CameraPreview
         large
         cameraLive={cameraLive}
@@ -402,23 +395,11 @@ function CameraScreen({ cameraLive, cameraStreamKey, onToggleCamera, onCameraErr
 function ActionsScreen() {
   return (
     <div className="screen-stack">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">ACTIONS</span>
-          <h1>Brownie's behaviors</h1>
-          <p>Built-in PiDog behaviors listed from Brownie's behavior launcher.</p>
-        </div>
-        <span className="sim-badge">12 BEHAVIORS</span>
-      </div>
-
       <section className="actions-library">
-        {brownieBehaviors.map(([icon, name, script]) => (
+        {brownieBehaviors.map(([icon, name]) => (
           <div className="card behavior-card" key={name}>
             <span className="behavior-icon">{icon}</span>
-            <span className="behavior-copy">
-              <b>{name}</b>
-              <small>PiDog example · {script}</small>
-            </span>
+            <span className="behavior-copy"><b>{name}</b></span>
           </div>
         ))}
       </section>
@@ -1083,17 +1064,17 @@ function App() {
 
   const toggleLed = async () => {
     setAccessoryBusy('led')
-    const nextMode = ledLoading ? 'off' : 'loading'
+    const nextMode = ledLoading ? 'off' : 'neon'
     try {
       const response = await fetch(`/api/accessories/led/${nextMode}`, {
         method: 'POST',
         cache: 'no-store',
       })
       if (!response.ok) throw new Error(`LED ${response.status}`)
-      setLedLoading(nextMode === 'loading')
-      showToast(nextMode === 'loading' ? 'LED loading pattern on' : 'LEDs off')
+      setLedLoading(nextMode === 'neon')
+      showToast(nextMode === 'neon' ? 'Neon Pulse on' : 'LEDs off')
     } catch {
-      showToast('LED control requires initialized Brownie hardware')
+      showToast('LED control unavailable')
     } finally {
       setAccessoryBusy('')
     }
@@ -1141,7 +1122,7 @@ function App() {
     ),
     Camera: <CameraScreen {...cameraProps} />,
     Voice: <VoiceScreen onToast={showToast} />,
-    Actions: <ActionsScreen />,
+    Actions: <BehaviorScreen onToast={showToast} />,
     Tune: (
       <TuneScreen
         movementSpeed={movementSpeed}
