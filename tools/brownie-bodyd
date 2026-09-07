@@ -10,9 +10,13 @@ from pathlib import Path
 
 SOCKET_PATH = Path("/tmp/brownie-body.sock")
 MANUAL_LEASE_SECONDS = 8.0
+HEAD_STEP_DEGREES = 20
+HEAD_LIMIT_DEGREES = 40
+HEAD_SPEED = 80
 
 DOG = None
 CURRENT_POSE = None
+CURRENT_HEAD_YRP = [0, 0, 0]
 MANUAL_LEASE_ID = None
 MANUAL_LEASE_EXPIRES_AT = 0.0
 
@@ -155,6 +159,7 @@ def initialize_body_to_pose(pose):
         tail_init_angle=[0],
     )
     CURRENT_POSE = pose
+    CURRENT_HEAD_YRP[:] = [0, 0, 0]
 
     if "rgb" in DOG.thread_list and hasattr(DOG, "rgb_strip"):
         _apply_led_mode(DOG.rgb_strip, desired_led_mode)
@@ -363,6 +368,7 @@ def handle(command):
             "ok": True,
             "body_initialized": body_initialized(),
             "pose": CURRENT_POSE,
+            "head_yrp": list(CURRENT_HEAD_YRP),
             "battery_voltage": read_battery_voltage(),
             "led_mode": CURRENT_LED_MODE,
             **control_state(),
@@ -545,6 +551,66 @@ def handle(command):
             "message": f"Brownie started one {action} gait action at speed {speed}.",
         }
 
+    if verb == "head":
+        parts = argument.split()
+        if len(parts) < 2:
+            return {
+                "ok": False,
+                "error": "Head movement command is missing lease or direction.",
+                **control_state(),
+            }
+
+        lease_id = parts[0]
+        direction = parts[1]
+
+        if direction not in {"up", "down", "left", "right"}:
+            return {
+                "ok": False,
+                "error": f"Unsupported head direction: {direction}",
+                **control_state(),
+            }
+
+        if not manual_lease_owned_by(lease_id):
+            return {
+                "ok": False,
+                "error": "Head movement requires the active manual-control lease for this client.",
+                **control_state(),
+            }
+
+        if not body_initialized():
+            return {
+                "ok": False,
+                "error": "Brownie's body hardware must be initialized before head movement is enabled.",
+                **control_state(),
+            }
+
+        if direction == "up":
+            CURRENT_HEAD_YRP[2] = min(HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[2] + HEAD_STEP_DEGREES)
+        elif direction == "down":
+            CURRENT_HEAD_YRP[2] = max(-HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[2] - HEAD_STEP_DEGREES)
+        elif direction == "left":
+            CURRENT_HEAD_YRP[0] = min(HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[0] + HEAD_STEP_DEGREES)
+        else:
+            CURRENT_HEAD_YRP[0] = max(-HEAD_LIMIT_DEGREES, CURRENT_HEAD_YRP[0] - HEAD_STEP_DEGREES)
+
+        DOG.head_move(
+            [list(CURRENT_HEAD_YRP)],
+            immediately=True,
+            speed=HEAD_SPEED,
+        )
+        renew_manual_lease(lease_id)
+
+        return {
+            "ok": True,
+            "body_initialized": True,
+            "pose": CURRENT_POSE,
+            "direction": direction,
+            "head_yrp": list(CURRENT_HEAD_YRP),
+            "speed": HEAD_SPEED,
+            **control_state(),
+            "message": f"Brownie head moved {direction} to {CURRENT_HEAD_YRP}.",
+        }
+
     if verb == "led":
         if argument not in {"loading", "off"}:
             return {
@@ -576,6 +642,7 @@ def handle(command):
     if verb == "stop":
         if body_initialized():
             DOG.body_stop()
+            DOG.head_stop()
 
         return {
             "ok": True,
@@ -583,7 +650,7 @@ def handle(command):
             "pose": CURRENT_POSE,
             **control_state(),
             "message": (
-                "Brownie body motion stopped."
+                "Brownie body and head motion stopped."
                 if body_initialized()
                 else "Brownie body is passive; no body motion to stop."
             ),
@@ -627,7 +694,7 @@ def main():
                     )
                     if not quiet_command:
                         safe_label = verb if verb in {
-                            "manual-acquire", "manual-release", "stand", "sit", "lie", "move", "led"
+                            "manual-acquire", "manual-release", "stand", "sit", "lie", "move", "head", "led"
                         } else data
                         print(f"COMMAND: {safe_label!r}", flush=True)
                     response = handle(data)
