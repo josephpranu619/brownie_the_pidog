@@ -6,6 +6,7 @@ Requires=brownie-mic.service brownie-bodyd.service
 [Service]
 Type=simple
 WorkingDirectory=/home/pranu/brownie_the_pidog
+Environment=PYTHONPATH=/home/pranu/brownie_the_pidog/integrations/hermes
 ExecStart=/bin/sh -c 'tail -f /dev/null | /usr/bin/script -qec "/home/pranu/.local/bin/hermes --cli" /dev/null'
 Restart=on-failure
 RestartSec=3
