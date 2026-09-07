@@ -33,16 +33,16 @@ BEEP_FADE_SECONDS = 0.008
 BEEP_DIR = Path("/tmp/brownie-hermes-beeps")
 
 
-def _body_command(command: str) -> None:
-    """Send a best-effort command to brownie-bodyd."""
+def _body_command(command: str) -> str:
+    """Send a best-effort command to brownie-bodyd and return its reply."""
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
             sock.connect(str(BODY_SOCKET))
             sock.sendall((command + "\n").encode())
-            sock.recv(4096)
-    except Exception:
-        pass
+            return sock.recv(4096).decode().strip()
+    except Exception as exc:
+        return f"ERROR: {exc}"
 
 
 def _beep_path(frequency: int, duration: float, count: int) -> Path:
@@ -94,10 +94,20 @@ def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int 
         count = max(1, int(count))
         duration = float(duration)
 
+        led_action = "none"
+        led_reply = "not-sent"
         if frequency == 880 and count == 1:
-            _body_command("led loading")
+            led_action = "loading"
+            led_reply = _body_command("led loading")
         elif frequency == 660 and count == 2:
-            _body_command("led off")
+            led_action = "off"
+            led_reply = _body_command("led off")
+
+        print(
+            f"Brownie voice cue: {frequency}Hz x{count} -> LED {led_action}; bodyd={led_reply}",
+            file=sys.stderr,
+            flush=True,
+        )
 
         path = _beep_path(frequency, duration, count)
         if not path.exists():
@@ -116,9 +126,8 @@ def _brownie_play_beep(frequency: int = 880, duration: float = 0.12, count: int 
             check=False,
             timeout=max(2.0, count * (duration + BEEP_GAP_SECONDS) + 1.0),
         )
-    except Exception:
-        # Feedback is useful, but it must never take down voice mode.
-        pass
+    except Exception as exc:
+        print(f"Brownie voice cue hook error: {exc}", file=sys.stderr, flush=True)
 
 
 def _install_hooks() -> None:
